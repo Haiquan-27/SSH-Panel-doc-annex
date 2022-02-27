@@ -3,7 +3,9 @@ SSH-Panel-doc-annex
 
 This repositories is used to provide necessary dependency files and detailed descriptions of *sublime text SSH panel* package
 
-[此处](https://raw.githubusercontent.com/Haiquan-27/SSH-Panel-doc-annex/main/README-CN.md)中文文档
+It can be used in `Windows 64bit` and `Linux 64bit`. For other OS or platforms, you may need to find or compile relevant files by yourself
+
+[此处](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/README-CN.md)中文文档
 
 # Files
 
