@@ -3,6 +3,8 @@ SSH-Panel-doc-annex
 
 This repositories is used to provide necessary dependency files and detailed descriptions of *sublime text SSH panel* package
 
+[此处](https://raw.githubusercontent.com/Haiquan-27/SSH-Panel-doc-annex/main/README-CN.md)中文文档
+
 # Files
 
 1. python3.dll
