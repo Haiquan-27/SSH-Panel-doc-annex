@@ -1,4 +1,4 @@
-# SSH-Panel-doc-annex
+SSH-Panel-doc-annex
 =====================
 
 这个仓库用于提供*Sublime Text SSH-Panel*包的必要依赖文件以及详细说明
