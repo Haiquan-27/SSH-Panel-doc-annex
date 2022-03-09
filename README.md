@@ -19,6 +19,9 @@ It can be used in `Windows 64bit` and `Linux 64bit`. For other OS or platforms, 
 > * six
 
 # How to use：
+1. Download the project to local
+2. Select the required file and copy it to the corresponding loading path of sublime text
+3. Restart sublime text
 
 ## for Windows：
 * copy python3.dll to sublime text *installation directory*

@@ -17,6 +17,9 @@ SSH-Panel-doc-annex
 > * six
 
 # 使用方法：
+1. 将项目下载到本地
+2. 选择需要的文件复制到sublime text的相应加载路径中
+3. 重启sublime text
 
 ## 对于Windows：
 * 将python3.dll复制到sublime text安装目录下
