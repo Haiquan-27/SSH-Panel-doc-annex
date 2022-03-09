@@ -25,6 +25,7 @@ SSH-Panel-doc-annex
 ![Screenshot](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/dependent_win.png?raw=true)
 
 ## 对于Linux：
+> 可能是不需要的
 * 安装libffi
 ```bash
 # if Debian / Ubuntu

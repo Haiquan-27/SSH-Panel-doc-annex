@@ -27,6 +27,7 @@ It can be used in `Windows 64bit` and `Linux 64bit`. For other OS or platforms, 
 ![Screenshot](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/dependent_win.png?raw=true)
 
 ## for Linux：
+> this may not be necessary
 * install libffi
 ```bash
 # if Debian / Ubuntu
