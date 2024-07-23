@@ -37,6 +37,10 @@ It can be used in `Windows 64bit` and `Linux 64bit`. For other OS or platforms, 
 apt-get install libffi-dev
 # if Fedora / CentOS / RHEL
 sudo yum install libffi-devel
+# if Arch / Manjaro `untest`
+sudo pacman -S libffi
+# if Opensuse `untest`
+sudo zypper install libffi-devel
 ```
 * copy python dependency library to *Lib\python38* of user of sublime text
 ![Screenshot](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/dependent_ubuntu.png?raw=true)
