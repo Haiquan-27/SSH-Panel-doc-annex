@@ -52,7 +52,7 @@ sudo zypper install libffi-devel
 ## 放置python依赖包
 
 ### (推荐)使用`ssh_panel_install_dependencies`自动安装
-1. 在安装完`SSH-Panel`后在console中使用`view.run_command('ssh_panel_install_dependencies')`命令进行自动安装
+1. 在安装完`SSH-Panel`后在console中使用`window.run_command('ssh_panel_install_dependencies')`命令进行自动安装
 2. 重启sublime text
 
 ### 手动安装

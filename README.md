@@ -54,7 +54,7 @@ sudo zypper install libffi-devel
 ## place python dependency library
 
 ### (recommend) using auto install command with `ssh_panel_install_dependencies`
-1. After install `SSH-Panel`,use `view.run_command('ssh_panel_install_dependencies')` in console
+1. After install `SSH-Panel`,use `window.run_command('ssh_panel_install_dependencies')` in console
 2. Restart sublime text
 
 ## manual install
