@@ -5,36 +5,67 @@ SSH-Panel-doc-annex
 
 可使用在`Windows 64bit`、`Linux 64bit`,对于其他OS或平台你可能需要自行寻找或编译相关文件
 
-# 提供的文件
-
-1. python3.dll
-
-2. 以下python3.8 库（分别在Windows10、Ubuntu1.8上使用python3.8环境完成编译）：
-> * bcrypt
-> * cffi
-> * cryptography
-> * nacl
-> * six
+# 提供的文件(library)
+```
+├── py33_windows_x64 (sublime text 3211)
+│	 └── dist-packages
+│		├── asn1crypto (1.5.1)
+│		├── bcrypt (3.1.3)
+│		├── cffi (1.11.5)
+│		├── Crypto (2.6.1)
+│		├── ecdsa (0.18.0)
+│		├── nacl (1.1.2)
+│		└── paramiko (1.18.5)
+├── py38_linux_x64 (sublime text 4+)
+│	 └── dist-packages
+│		├── bcrypt (3.2.0)
+│		├── cffi (1.15.0)
+│		├── cryptography (36.0.1)
+│		├── nacl (1.5.0)
+│		└── paramiko (2.9.2)
+└── py38_windows_x64 (sublime text 4+)
+	├── dist-packages
+	│	 ├── bcrypt (4.2.0)
+	│	 ├── cffi (1.17.0)
+	│	 ├── cryptography (43.0.0)
+	│	 ├── nacl (1.5.0)
+	│	 ├── paramiko (3.4.1)
+	│	 └── pycparser (2.22)
+	└── python3.dll (python3.8.6/[MSC v.1927 64 bit (AMD64)] on win32)
+```
 
 # 使用方法：
-1. 将项目下载到本地
-2. 选择需要的文件复制到sublime text的相应加载路径中
-3. 重启sublime text
 
-## 对于Windows：
-* 将python3.dll复制到sublime text安装目录下
-![Screenshot](https://raw.githubusercontent.com/Haiquan-27/SSH-Panel-doc-annex/main/dependent_dll.png)
-* 将python依赖库放入sublime text用户的*Lib\python38*路径下
-![Screenshot](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/dependent_win.png?raw=true)
-
-## 对于Linux：
+## 在Linux上
 * 安装libffi
-> 可能是不需要的
 ```bash
 # if Debian / Ubuntu
 apt-get install libffi-dev
 # if Fedora / CentOS / RHEL
 sudo yum install libffi-devel
+# if Arch / Manjaro `untest`
+sudo pacman -S libffi
+# if Opensuse `untest`
+sudo zypper install libffi-devel
 ```
-* 将python依赖库放入sublime text用户的*Lib\python38*路径下
+
+## 放置python依赖包
+
+### (推荐)使用`ssh_panel_install_dependencies`自动安装
+1. 在安装完`SSH-Panel`后在console中使用`view.run_command('ssh_panel_install_dependencies')`命令进行自动安装
+2. 重启sublime text
+
+### 手动安装
+1. 将项目下载到本地
+2. 根据您的系统平台和sublime text版本选择需要的文件复制到sublime text的相应加载路径中
+3. 重启sublime text
+
+#### 对于Windows：
+* 将python3.dll复制到sublime text安装目录下 (only sublime text 4+)
+![Screenshot](https://raw.githubusercontent.com/Haiquan-27/SSH-Panel-doc-annex/main/dependent_dll.png)
+* 将python依赖库放入sublime text用户的*Lib\python38(or python3.3)*路径下
+![Screenshot](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/dependent_win.png?raw=true)
+
+#### 对于Linux：
+* 将python依赖库放入sublime text用户的*Lib\python38(or python3.3)*路径下
 ![Screenshot](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/dependent_ubuntu.png?raw=true)
