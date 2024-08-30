@@ -25,15 +25,23 @@ It can be used in `Windows 64bit` and `Linux 64bit`. For other OS or platforms, 
 │		├── cryptography (36.0.1)
 │		├── nacl (1.5.0)
 │		└── paramiko (2.9.2)
-└── py38_windows_x64 (sublime text 4+)
-	├── dist-packages
-	│	 ├── bcrypt (4.2.0)
-	│	 ├── cffi (1.17.0)
-	│	 ├── cryptography (43.0.0)
-	│	 ├── nacl (1.5.0)
-	│	 ├── paramiko (3.4.1)
-	│	 └── pycparser (2.22)
-	└── python3.dll (python3.8.6/[MSC v.1927 64 bit (AMD64)] on win32)
+├── py38_windows_x64 (sublime text 4+)
+|	├── dist-packages
+|	│	 ├── bcrypt (4.2.0)
+|	│	 ├── cffi (1.17.0)
+|	│	 ├── cryptography (43.0.0)
+|	│	 ├── nacl (1.5.0)
+|	│	 ├── paramiko (3.4.1)
+|	│	 └── pycparser (2.22)
+|	└── python3.dll (python3.8.6/[MSC v.1927 64 bit (AMD64)] on win32)
+└─── py38_osx_x64 (sublime tet 4+)
+	 └── dist-packages
+		 ├── bcrypt (4.2.0)
+		 ├── cryptography (43.0.0)
+		 ├── cffi (1.17.0)
+		 ├── nacl (1.5.0)
+		 ├── paramiko (3.4.1)
+		 └── pycparser (2.22)
 ```
 
 # How to use：
