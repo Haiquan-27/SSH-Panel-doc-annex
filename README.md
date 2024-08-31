@@ -9,19 +9,11 @@ It can be used in `Windows amd64` `Linux amd64` `MacOS amd64`. For other OS or p
 
 # Files(library)
 ```
-├── py33_windows_x64 (sublime text 3211)
-│	 └── dist-packages
-│		├── asn1crypto (1.5.1)
-│		├── bcrypt (3.1.3)
-│		├── cffi (1.11.5)
-│		├── Crypto (2.6.1)
-│		├── ecdsa (0.18.0)
-│		├── nacl (1.1.2)
-│		└── paramiko (1.18.5)
 ├── py38_linux_x64 (sublime text 4+)
 │	 └── dist-packages
 │		├── bcrypt (3.2.0)
 │		├── cffi (1.15.0)
+│		├── six (1.16.0)
 │		├── cryptography (36.0.1)
 │		├── nacl (1.5.0)
 │		└── paramiko (2.9.2)
@@ -34,14 +26,31 @@ It can be used in `Windows amd64` `Linux amd64` `MacOS amd64`. For other OS or p
 |	│	 ├── paramiko (3.4.1)
 |	│	 └── pycparser (2.22)
 |	└── python3.dll (python3.8.6/[MSC v.1927 64 bit (AMD64)] on win32)
-└─── py38_osx_x64 (sublime tet 4+)
+├─── py38_osx_x64 (sublime tet 4+)
+|	 └── dist-packages
+|		 ├── bcrypt (4.2.0)
+|		 ├── cryptography (43.0.0)
+|		 ├── cffi (1.17.0)
+|		 ├── nacl (1.5.0)
+|		 ├── paramiko (3.4.1)
+|		 └── pycparser (2.22)
+├── py33_windows_x64 (sublime text 3211)
+│	 └── dist-packages
+│		├── asn1crypto (1.5.1)
+│		├── bcrypt (3.1.3)
+│		├── cffi (1.11.5)
+│		├── Crypto (2.6.1)
+│		├── ecdsa (0.18.0)
+│		├── nacl (1.1.2)
+│		├── enum (0.4.7)
+│		├── six (1.16.0)
+│		└── paramiko (1.18.5)
+└── py33_windows_x32 (sublime text 3211)
 	 └── dist-packages
-		 ├── bcrypt (4.2.0)
-		 ├── cryptography (43.0.0)
-		 ├── cffi (1.17.0)
-		 ├── nacl (1.5.0)
-		 ├── paramiko (3.4.1)
-		 └── pycparser (2.22)
+		├── ecdsa (0.18.0)
+		├── paramiko (0.18.5)
+		├── six (0.16.0)
+		└── Crypto (2.6.1)
 ```
 
 # How to use：
