@@ -3,7 +3,7 @@ SSH-Panel-doc-annex
 
 This repositories is used to provide necessary dependency files and detailed descriptions of *sublime text SSH panel* package
 
-It can be used in `Windows amd64` `Linux amd64` `MacOS amd64`. For other OS or platforms, you may need to find or compile relevant files by yourself
+It can be used in `Windows x86` `Windows amd64` `Linux amd64` `MacOS amd64` `MacOS arm64`. For other OS or platforms, you may need to find or compile relevant files by yourself
 
 [此处](https://github.com/Haiquan-27/SSH-Panel-doc-annex/blob/main/README-CN.md)中文文档
 

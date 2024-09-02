@@ -3,7 +3,7 @@ SSH-Panel-doc-annex
 
 这个仓库用于提供*Sublime Text SSH-Panel*包的必要依赖文件以及详细说明
 
-可使用在`Windows amd64`、`Linux amd64`、`MacOS amd64`,对于其他OS或平台你可能需要自行寻找或编译相关文件
+可使用在`Windows x86`、`Windows amd64`、`Linux amd64`、`MacOS amd64`、`MacOS arm64`,对于其他OS或平台你可能需要自行寻找或编译相关文件
 
 # 提供的文件(library)
 ```
