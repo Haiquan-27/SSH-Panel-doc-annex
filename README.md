@@ -34,6 +34,14 @@ It can be used in `Windows amd64` `Linux amd64` `MacOS amd64`. For other OS or p
 |		 ├── nacl (1.5.0)
 |		 ├── paramiko (3.4.1)
 |		 └── pycparser (2.22)
+├─── py38_osx_arm64 (sublime tet 4+)
+|	 └── dist-packages
+|		 ├── bcrypt (4.2.0)
+|		 ├── cryptography (43.0.0)
+|		 ├── cffi (1.17.0)
+|		 ├── nacl (1.5.0)
+|		 ├── paramiko (3.4.1)
+|		 └── pycparser (2.22)
 ├── py33_windows_x64 (sublime text 3211)
 │	 └── dist-packages
 │		├── asn1crypto (1.5.1)
