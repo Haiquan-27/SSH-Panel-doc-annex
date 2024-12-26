@@ -14,22 +14,23 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 SFTP file object
 """
 
+from __future__ import with_statement
 
 from binascii import hexlify
 from collections import deque
 import socket
 import threading
 import time
-from paramiko.common import DEBUG, io_sleep
+from paramiko.common import DEBUG
 
 from paramiko.file import BufferedFile
-from paramiko.util import u
+from paramiko.py3compat import u, long
 from paramiko.sftp import (
     CMD_CLOSE,
     CMD_READ,
@@ -41,7 +42,6 @@ from paramiko.sftp import (
     CMD_ATTRS,
     CMD_FSETSTAT,
     CMD_EXTENDED,
-    int64,
 )
 from paramiko.sftp_attr import SFTPAttributes
 
@@ -183,7 +183,7 @@ class SFTPFile(BufferedFile):
             if data is not None:
                 return data
         t, msg = self.sftp._request(
-            CMD_READ, self.handle, int64(self._realpos), int(size)
+            CMD_READ, self.handle, long(self._realpos), int(size)
         )
         if t != CMD_DATA:
             raise SFTPError("Expected data")
@@ -196,7 +196,7 @@ class SFTPFile(BufferedFile):
             type(None),
             CMD_WRITE,
             self.handle,
-            int64(self._realpos),
+            long(self._realpos),
             data[:chunk],
         )
         self._reqs.append(sftp_async_request)
@@ -406,8 +406,8 @@ class SFTPFile(BufferedFile):
             "check-file",
             self.handle,
             hash_algorithm,
-            int64(offset),
-            int64(length),
+            long(offset),
+            long(length),
             block_size,
         )
         msg.get_text()  # ext
@@ -435,7 +435,7 @@ class SFTPFile(BufferedFile):
         """
         self.pipelined = pipelined
 
-    def prefetch(self, file_size=None, max_concurrent_requests=None):
+    def prefetch(self, file_size=None):
         """
         Pre-fetch the remaining contents of this file in anticipation of future
         `.read` calls.  If reading the entire file, pre-fetching can
@@ -454,10 +454,6 @@ class SFTPFile(BufferedFile):
             <https://github.com/paramiko/paramiko/pull/562>`_); as a
             workaround, one may call `stat` explicitly and pass its value in
             via this parameter.
-        :param int max_concurrent_requests:
-            The maximum number of concurrent read requests to prefetch. See
-            `.SFTPClient.get` (its ``max_concurrent_prefetch_requests`` param)
-            for details.
 
         .. versionadded:: 1.5.1
         .. versionchanged:: 1.16.0
@@ -465,8 +461,6 @@ class SFTPFile(BufferedFile):
         .. versionchanged:: 1.16.1
             The ``file_size`` parameter was made optional for backwards
             compatibility.
-        .. versionchanged:: 3.3
-            Added ``max_concurrent_requests``.
         """
         if file_size is None:
             file_size = self.stat().st_size
@@ -479,9 +473,9 @@ class SFTPFile(BufferedFile):
             chunks.append((n, chunk))
             n += chunk
         if len(chunks) > 0:
-            self._start_prefetch(chunks, max_concurrent_requests)
+            self._start_prefetch(chunks)
 
-    def readv(self, chunks, max_concurrent_prefetch_requests=None):
+    def readv(self, chunks):
         """
         Read a set of blocks from the file by (offset, length).  This is more
         efficient than doing a series of `.seek` and `.read` calls, since the
@@ -491,15 +485,9 @@ class SFTPFile(BufferedFile):
         :param chunks:
             a list of ``(offset, length)`` tuples indicating which sections of
             the file to read
-        :param int max_concurrent_prefetch_requests:
-            The maximum number of concurrent read requests to prefetch. See
-            `.SFTPClient.get` (its ``max_concurrent_prefetch_requests`` param)
-            for details.
         :return: a list of blocks read, in the same order as in ``chunks``
 
         .. versionadded:: 1.5.4
-        .. versionchanged:: 3.3
-            Added ``max_concurrent_prefetch_requests``.
         """
         self.sftp._log(
             DEBUG, "readv({}, {!r})".format(hexlify(self.handle), chunks)
@@ -520,7 +508,7 @@ class SFTPFile(BufferedFile):
                 offset += chunk_size
                 size -= chunk_size
 
-        self._start_prefetch(read_chunks, max_concurrent_prefetch_requests)
+        self._start_prefetch(read_chunks)
         # now we can just devolve to a bunch of read()s :)
         for x in chunks:
             self.seek(x[0])
@@ -534,32 +522,20 @@ class SFTPFile(BufferedFile):
         except:
             return 0
 
-    def _start_prefetch(self, chunks, max_concurrent_requests=None):
+    def _start_prefetch(self, chunks):
         self._prefetching = True
         self._prefetch_done = False
 
-        t = threading.Thread(
-            target=self._prefetch_thread,
-            args=(chunks, max_concurrent_requests),
-        )
-        t.daemon = True
+        t = threading.Thread(target=self._prefetch_thread, args=(chunks,))
+        t.setDaemon(True)
         t.start()
 
-    def _prefetch_thread(self, chunks, max_concurrent_requests):
+    def _prefetch_thread(self, chunks):
         # do these read requests in a temporary thread because there may be
         # a lot of them, so it may block.
         for offset, length in chunks:
-            # Limit the number of concurrent requests in a busy-loop
-            if max_concurrent_requests is not None:
-                while True:
-                    with self._prefetch_lock:
-                        pf_len = len(self._prefetch_extents)
-                        if pf_len < max_concurrent_requests:
-                            break
-                    time.sleep(io_sleep)
-
             num = self.sftp._async_request(
-                self, CMD_READ, self.handle, int64(offset), int(length)
+                self, CMD_READ, self.handle, long(offset), int(length)
             )
             with self._prefetch_lock:
                 self._prefetch_extents[num] = (offset, length)

@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 SSH client & key policies
@@ -35,6 +35,7 @@ from paramiko.dsskey import DSSKey
 from paramiko.ecdsakey import ECDSAKey
 from paramiko.ed25519key import Ed25519Key
 from paramiko.hostkeys import HostKeys
+from paramiko.py3compat import string_types
 from paramiko.rsakey import RSAKey
 from paramiko.ssh_exception import (
     SSHException,
@@ -42,7 +43,7 @@ from paramiko.ssh_exception import (
     NoValidConnectionsError,
 )
 from paramiko.transport import Transport
-from paramiko.util import ClosingContextManager
+from paramiko.util import retry_on_signal, ClosingContextManager
 
 
 class SSHClient(ClosingContextManager):
@@ -233,12 +234,9 @@ class SSHClient(ClosingContextManager):
         gss_host=None,
         banner_timeout=None,
         auth_timeout=None,
-        channel_timeout=None,
         gss_trust_dns=True,
         passphrase=None,
         disabled_algorithms=None,
-        transport_factory=None,
-        auth_strategy=None,
     ):
         """
         Connect to an SSH server and authenticate to it.  The server's host key
@@ -313,49 +311,18 @@ class SSHClient(ClosingContextManager):
             for the SSH banner to be presented.
         :param float auth_timeout: an optional timeout (in seconds) to wait for
             an authentication response.
-        :param float channel_timeout: an optional timeout (in seconds) to wait
-             for a channel open response.
         :param dict disabled_algorithms:
             an optional dict passed directly to `.Transport` and its keyword
             argument of the same name.
-        :param transport_factory:
-            an optional callable which is handed a subset of the constructor
-            arguments (primarily those related to the socket, GSS
-            functionality, and algorithm selection) and generates a
-            `.Transport` instance to be used by this client. Defaults to
-            `.Transport.__init__`.
-        :param auth_strategy:
-            an optional instance of `.AuthStrategy`, triggering use of this
-            newer authentication mechanism instead of SSHClient's legacy auth
-            method.
 
-            .. warning::
-                This parameter is **incompatible** with all other
-                authentication-related parameters (such as, but not limited to,
-                ``password``, ``key_filename`` and ``allow_agent``) and will
-                trigger an exception if given alongside them.
-
-        :returns:
-            `.AuthResult` if ``auth_strategy`` is non-``None``; otherwise,
-            returns ``None``.
-
-        :raises BadHostKeyException:
-            if the server's host key could not be verified.
-        :raises AuthenticationException:
-            if authentication failed.
-        :raises UnableToAuthenticate:
-            if authentication failed (when ``auth_strategy`` is non-``None``;
-            and note that this is a subclass of ``AuthenticationException``).
-        :raises socket.error:
-            if a socket error (other than connection-refused or
-            host-unreachable) occurred while connecting.
-        :raises NoValidConnectionsError:
-            if all valid connection targets for the requested hostname (eg IPv4
-            and IPv6) yielded connection-refused or host-unreachable socket
-            errors.
-        :raises SSHException:
-            if there was any other error connecting or establishing an SSH
-            session.
+        :raises:
+            `.BadHostKeyException` -- if the server's host key could not be
+            verified
+        :raises: `.AuthenticationException` -- if authentication failed
+        :raises:
+            `.SSHException` -- if there was any other error connecting or
+            establishing an SSH session
+        :raises socket.error: if a socket error occurred while connecting
 
         .. versionchanged:: 1.15
             Added the ``banner_timeout``, ``gss_auth``, ``gss_kex``,
@@ -366,10 +333,6 @@ class SSHClient(ClosingContextManager):
             Added the ``passphrase`` argument.
         .. versionchanged:: 2.6
             Added the ``disabled_algorithms`` argument.
-        .. versionchanged:: 2.12
-            Added the ``transport_factory`` argument.
-        .. versionchanged:: 3.2
-            Added the ``auth_strategy`` argument.
         """
         if not sock:
             errors = {}
@@ -383,14 +346,10 @@ class SSHClient(ClosingContextManager):
                             sock.settimeout(timeout)
                         except:
                             pass
-                    sock.connect(addr)
+                    retry_on_signal(lambda: sock.connect(addr))
                     # Break out of the loop on success
                     break
                 except socket.error as e:
-                    # As mentioned in socket docs it is better
-                    # to close sockets explicitly
-                    if sock:
-                        sock.close()
                     # Raise anything that isn't a straight up connection error
                     # (such as a resolution error)
                     if e.errno not in (ECONNREFUSED, EHOSTUNREACH):
@@ -408,9 +367,7 @@ class SSHClient(ClosingContextManager):
             if len(errors) == len(to_try):
                 raise NoValidConnectionsError(errors)
 
-        if transport_factory is None:
-            transport_factory = Transport
-        t = self._transport = transport_factory(
+        t = self._transport = Transport(
             sock,
             gss_kex=gss_kex,
             gss_deleg_creds=gss_deleg_creds,
@@ -430,8 +387,6 @@ class SSHClient(ClosingContextManager):
             t.banner_timeout = banner_timeout
         if auth_timeout is not None:
             t.auth_timeout = auth_timeout
-        if channel_timeout is not None:
-            t.channel_timeout = channel_timeout
 
         if port == SSH_PORT:
             server_hostkey_name = hostname
@@ -470,14 +425,9 @@ class SSHClient(ClosingContextManager):
         if username is None:
             username = getpass.getuser()
 
-        # New auth flow!
-        if auth_strategy is not None:
-            return auth_strategy.authenticate(transport=t)
-
-        # Old auth flow!
         if key_filename is None:
             key_filenames = []
-        elif isinstance(key_filename, str):
+        elif isinstance(key_filename, string_types):
             key_filenames = [key_filename]
         else:
             key_filenames = key_filename
@@ -723,8 +673,6 @@ class SSHClient(ClosingContextManager):
 
         if not two_factor:
             for key_filename in key_filenames:
-                # TODO 4.0: leverage PKey.from_path() if we don't end up just
-                # killing SSHClient entirely
                 for pkey_class in (RSAKey, DSSKey, ECDSAKey, Ed25519Key):
                     try:
                         key = self._key_from_filepath(
@@ -822,7 +770,7 @@ class SSHClient(ClosingContextManager):
         self._transport._log(level, msg)
 
 
-class MissingHostKeyPolicy:
+class MissingHostKeyPolicy(object):
     """
     Interface for defining the policy that `.SSHClient` should use when the
     SSH server's hostname is not in either the system host keys or the

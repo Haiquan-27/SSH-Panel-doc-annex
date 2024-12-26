@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Abstraction for an SSH2 channel.
@@ -26,6 +26,7 @@ import socket
 import time
 import threading
 
+# TODO: switch as much of py3compat.py to 'six' as possible, then use six.wraps
 from functools import wraps
 
 from paramiko import util
@@ -42,6 +43,7 @@ from paramiko.common import (
     cMSG_CHANNEL_CLOSE,
 )
 from paramiko.message import Message
+from paramiko.py3compat import bytes_types
 from paramiko.ssh_exception import SSHException
 from paramiko.file import BufferedFile
 from paramiko.buffered_pipe import BufferedPipe, PipeTimeout
@@ -688,7 +690,7 @@ class Channel(ClosingContextManager):
         length zero is returned, the channel stream has closed.
 
         :param int nbytes: maximum number of bytes to read.
-        :return: received data, as a `bytes`.
+        :return: received data, as a ``str``/``bytes``.
 
         :raises socket.timeout:
             if no data is ready before the timeout set by `settimeout`.
@@ -734,7 +736,7 @@ class Channel(ClosingContextManager):
         channel stream has closed.
 
         :param int nbytes: maximum number of bytes to read.
-        :return: received data as a `bytes`
+        :return: received data as a `str`
 
         :raises socket.timeout: if no data is ready before the timeout set by
             `settimeout`.
@@ -786,7 +788,7 @@ class Channel(ClosingContextManager):
         transmitted, the application needs to attempt delivery of the remaining
         data.
 
-        :param bytes s: data to send
+        :param str s: data to send
         :return: number of bytes actually sent, as an `int`
 
         :raises socket.timeout: if no data could be sent before the timeout set
@@ -807,7 +809,7 @@ class Channel(ClosingContextManager):
         data has been sent: if only some of the data was transmitted, the
         application needs to attempt delivery of the remaining data.
 
-        :param bytes s: data to send.
+        :param str s: data to send.
         :return: number of bytes actually sent, as an `int`.
 
         :raises socket.timeout:
@@ -828,7 +830,7 @@ class Channel(ClosingContextManager):
         `send`, this method continues to send data from the given string until
         either all data has been sent or an error occurs.  Nothing is returned.
 
-        :param bytes s: data to send.
+        :param str s: data to send.
 
         :raises socket.timeout:
             if sending stalled for longer than the timeout set by `settimeout`.
@@ -849,10 +851,10 @@ class Channel(ClosingContextManager):
         """
         Send data to the channel's "stderr" stream, without allowing partial
         results.  Unlike `send_stderr`, this method continues to send data
-        from the given bytestring until all data has been sent or an error
-        occurs. Nothing is returned.
+        from the given string until all data has been sent or an error occurs.
+        Nothing is returned.
 
-        :param bytes s: data to send to the client as "stderr" output.
+        :param str s: data to send to the client as "stderr" output.
 
         :raises socket.timeout:
             if sending stalled for longer than the timeout set by `settimeout`.
@@ -1037,7 +1039,7 @@ class Channel(ClosingContextManager):
                 self.transport._send_user_message(m)
 
     def _feed(self, m):
-        if isinstance(m, bytes):
+        if isinstance(m, bytes_types):
             # passed from _feed_extended
             s = m
         else:
@@ -1064,7 +1066,7 @@ class Channel(ClosingContextManager):
             if self.ultra_debug:
                 self._log(DEBUG, "window up {}".format(nbytes))
             self.out_window_size += nbytes
-            self.out_buffer_cv.notify_all()
+            self.out_buffer_cv.notifyAll()
         finally:
             self.lock.release()
 
@@ -1228,7 +1230,7 @@ class Channel(ClosingContextManager):
         self.closed = True
         self.in_buffer.close()
         self.in_stderr_buffer.close()
-        self.out_buffer_cv.notify_all()
+        self.out_buffer_cv.notifyAll()
         # Notify any waiters that we are closed
         self.event.set()
         self.status_event.set()
@@ -1386,5 +1388,5 @@ class ChannelStdinFile(ChannelFile):
     """
 
     def close(self):
-        super().close()
+        super(ChannelStdinFile, self).close()
         self.channel.shutdown_write()

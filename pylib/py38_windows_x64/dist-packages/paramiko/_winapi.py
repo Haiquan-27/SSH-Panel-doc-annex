@@ -6,10 +6,10 @@ If you encounter issues with this module, please consider reporting the issues
 in jaraco.windows and asking the author to port the fixes back here.
 """
 
-import builtins
+import sys
 import ctypes.wintypes
 
-from paramiko.util import u
+from paramiko.py3compat import u, builtins
 
 
 ######################
@@ -60,8 +60,11 @@ class WindowsError(builtins.WindowsError):
         if value is None:
             value = ctypes.windll.kernel32.GetLastError()
         strerror = format_system_message(value)
-        args = 0, strerror, None, value
-        super().__init__(*args)
+        if sys.version_info > (3, 3):
+            args = 0, strerror, None, value
+        else:
+            args = value, strerror
+        super(WindowsError, self).__init__(*args)
 
     @property
     def message(self):
@@ -130,7 +133,7 @@ ctypes.windll.kernel32.LocalFree.argtypes = (ctypes.wintypes.HLOCAL,)
 # jaraco.windows.mmap
 
 
-class MemoryMap:
+class MemoryMap(object):
     """
     A memory map object which can have security attributes overridden.
     """
@@ -172,7 +175,7 @@ class MemoryMap:
         assert isinstance(msg, bytes)
         n = len(msg)
         if self.pos + n >= self.length:  # A little safety.
-            raise ValueError(f"Refusing to write {n} bytes")
+            raise ValueError("Refusing to write %d bytes" % n)
         dest = self.view + self.pos
         length = ctypes.c_size_t(n)
         ctypes.windll.kernel32.RtlMoveMemory(dest, msg, length)
@@ -322,7 +325,7 @@ class SECURITY_ATTRIBUTES(ctypes.Structure):
     ]
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super(SECURITY_ATTRIBUTES, self).__init__(*args, **kwargs)
         self.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
 
     @property

@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 `.ServerInterface` is an interface to override for server support.
@@ -29,9 +29,10 @@ from paramiko.common import (
     AUTH_FAILED,
     AUTH_SUCCESSFUL,
 )
+from paramiko.py3compat import string_types
 
 
-class ServerInterface:
+class ServerInterface(object):
     """
     This class defines an interface for controlling the behavior of Paramiko
     in server mode.
@@ -254,8 +255,8 @@ class ServerInterface:
                  a valid krb5 principal!
                  We don't check if the krb5 principal is allowed to log in on
                  the server, because there is no way to do that in python. So
-                 if you develop your own SSH server with paramiko for a certain
-                 platform like Linux, you should call C{krb5_kuserok()} in
+                 if you develop your own SSH server with paramiko for a cetain
+                 plattform like Linux, you should call C{krb5_kuserok()} in
                  your local kerberos library to make sure that the
                  krb5_principal has an account on the server and is allowed to
                  log in as a user.
@@ -286,8 +287,8 @@ class ServerInterface:
                  a valid krb5 principal!
                  We don't check if the krb5 principal is allowed to log in on
                  the server, because there is no way to do that in python. So
-                 if you develop your own SSH server with paramiko for a certain
-                 platform like Linux, you should call C{krb5_kuserok()} in
+                 if you develop your own SSH server with paramiko for a cetain
+                 plattform like Linux, you should call C{krb5_kuserok()} in
                  your local kerberos library to make sure that the
                  krb5_principal has an account on the server and is allowed
                  to log in as a user.
@@ -355,7 +356,7 @@ class ServerInterface:
         If the request was successful and you would like to return contextual
         data to the remote host, return a tuple.  Items in the tuple will be
         sent back with the successful result.  (Note that the items in the
-        tuple can only be strings, ints, or bools.)
+        tuple can only be strings, ints, longs, or bools.)
 
         The default implementation always returns ``False``, indicating that it
         does not support any global requests.
@@ -454,10 +455,10 @@ class ServerInterface:
             subsystem; ``False`` if that subsystem can't or won't be provided.
         """
         transport = channel.get_transport()
-        handler_class, args, kwargs = transport._get_subsystem_handler(name)
+        handler_class, larg, kwarg = transport._get_subsystem_handler(name)
         if handler_class is None:
             return False
-        handler = handler_class(channel, name, self, *args, **kwargs)
+        handler = handler_class(channel, name, self, *larg, **kwarg)
         handler.start()
         return True
 
@@ -517,9 +518,6 @@ class ServerInterface:
 
         :param .Channel channel: the `.Channel` the request arrived on
         :return: ``True`` if the AgentForward was loaded; ``False`` if not
-
-        If ``True`` is returned, the server should create an
-        :class:`AgentServerProxy` to access the agent.
         """
         return False
 
@@ -596,7 +594,7 @@ class ServerInterface:
         return (None, None)
 
 
-class InteractiveQuery:
+class InteractiveQuery(object):
     """
     A query (set of prompts) for a user during interactive authentication.
     """
@@ -617,7 +615,7 @@ class InteractiveQuery:
         self.instructions = instructions
         self.prompts = []
         for x in prompts:
-            if isinstance(x, str):
+            if isinstance(x, string_types):
                 self.add_prompt(x)
             else:
                 self.add_prompt(x[0], x[1])
@@ -637,7 +635,7 @@ class InteractiveQuery:
 
 class SubsystemHandler(threading.Thread):
     """
-    Handler for a subsystem in server mode.  If you create a subclass of this
+    Handler for a subsytem in server mode.  If you create a subclass of this
     class and pass it to `.Transport.set_subsystem_handler`, an object of this
     class will be created for each request for this subsystem.  Each new object
     will be executed within its own new thread by calling `start_subsystem`.
@@ -645,7 +643,7 @@ class SubsystemHandler(threading.Thread):
 
     For example, if you made a subclass ``MP3Handler`` and registered it as the
     handler for subsystem ``"mp3"``, then whenever a client has successfully
-    authenticated and requests subsystem ``"mp3"``, an object of class
+    authenticated and requests subsytem ``"mp3"``, an object of class
     ``MP3Handler`` will be created, and `start_subsystem` will be called on
     it from a new thread.
     """

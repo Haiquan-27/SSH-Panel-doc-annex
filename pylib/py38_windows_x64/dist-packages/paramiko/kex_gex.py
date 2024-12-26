@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Variant on `KexGroup1 <paramiko.kex_group1.KexGroup1>` where the prime "p" and
@@ -26,8 +26,9 @@ import os
 from hashlib import sha1, sha256
 
 from paramiko import util
-from paramiko.common import DEBUG, byte_chr, byte_ord, byte_mask
+from paramiko.common import DEBUG
 from paramiko.message import Message
+from paramiko.py3compat import byte_chr, byte_ord, byte_mask
 from paramiko.ssh_exception import SSHException
 
 
@@ -48,7 +49,7 @@ from paramiko.ssh_exception import SSHException
 ) = [byte_chr(c) for c in range(30, 35)]
 
 
-class KexGex:
+class KexGex(object):
 
     name = "diffie-hellman-group-exchange-sha1"
     min_bits = 1024
@@ -111,7 +112,7 @@ class KexGex:
         qnorm = util.deflate_long(q, 0)
         qhbyte = byte_ord(qnorm[0])
         byte_count = len(qnorm)
-        qmask = 0xFF
+        qmask = 0xff
         while not (qhbyte & 0x80):
             qhbyte <<= 1
             qmask >>= 1

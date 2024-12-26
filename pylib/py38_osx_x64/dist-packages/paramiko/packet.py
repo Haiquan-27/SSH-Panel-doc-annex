@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Packet handling
@@ -32,13 +32,13 @@ from paramiko import util
 from paramiko.common import (
     linefeed_byte,
     cr_byte_value,
+    asbytes,
     MSG_NAMES,
     DEBUG,
     xffffffff,
     zero_byte,
-    byte_ord,
 )
-from paramiko.util import u
+from paramiko.py3compat import u, byte_ord
 from paramiko.ssh_exception import SSHException, ProxyCommandFailure
 from paramiko.message import Message
 
@@ -62,7 +62,7 @@ def first_arg(e):
     return arg
 
 
-class Packetizer:
+class Packetizer(object):
     """
     Implementation of the base SSH packet protocol.
     """
@@ -86,7 +86,6 @@ class Packetizer:
         self.__need_rekey = False
         self.__init_count = 0
         self.__remainder = bytes()
-        self._initial_kex_done = False
 
         # used for noticing when to re-key:
         self.__sent_bytes = 0
@@ -130,12 +129,6 @@ class Packetizer:
     @property
     def closed(self):
         return self.__closed
-
-    def reset_seqno_out(self):
-        self.__sequence_number_out = 0
-
-    def reset_seqno_in(self):
-        self.__sequence_number_in = 0
 
     def set_log(self, log):
         """
@@ -319,6 +312,9 @@ class Packetizer:
                 arg = first_arg(e)
                 if arg == errno.EAGAIN:
                     got_timeout = True
+                elif arg == errno.EINTR:
+                    # syscall interrupted; try again
+                    pass
                 elif self.__closed:
                     raise EOFError()
                 else:
@@ -343,6 +339,9 @@ class Packetizer:
             except socket.error as e:
                 arg = first_arg(e)
                 if arg == errno.EAGAIN:
+                    retry_write = True
+                elif arg == errno.EINTR:
+                    # syscall interrupted; try again
                     retry_write = True
                 else:
                     n = -1
@@ -391,7 +390,7 @@ class Packetizer:
         Write a block of data using the current cipher, as an SSH block.
         """
         # encrypt this sucka
-        data = data.asbytes()
+        data = asbytes(data)
         cmd = byte_ord(data[0])
         if cmd in MSG_NAMES:
             cmd_name = MSG_NAMES[cmd]
@@ -426,12 +425,9 @@ class Packetizer:
                 out += compute_hmac(
                     self.__mac_key_out, payload, self.__mac_engine_out
                 )[: self.__mac_size_out]
-            next_seq = (self.__sequence_number_out + 1) & xffffffff
-            if next_seq == 0 and not self._initial_kex_done:
-                raise SSHException(
-                    "Sequence number rolled over during initial kex!"
-                )
-            self.__sequence_number_out = next_seq
+            self.__sequence_number_out = (
+                self.__sequence_number_out + 1
+            ) & xffffffff
             self.write_all(out)
 
             self.__sent_bytes += len(out)
@@ -535,12 +531,7 @@ class Packetizer:
 
         msg = Message(payload[1:])
         msg.seqno = self.__sequence_number_in
-        next_seq = (self.__sequence_number_in + 1) & xffffffff
-        if next_seq == 0 and not self._initial_kex_done:
-            raise SSHException(
-                "Sequence number rolled over during initial kex!"
-            )
-        self.__sequence_number_in = next_seq
+        self.__sequence_number_in = (self.__sequence_number_in + 1) & xffffffff
 
         # check for rekey
         raw_packet_size = packet_size + self.__mac_size_in + 4
@@ -619,6 +610,11 @@ class Packetizer:
                 break
             except socket.timeout:
                 pass
+            except EnvironmentError as e:
+                if first_arg(e) == errno.EINTR:
+                    pass
+                else:
+                    raise
             if self.__closed:
                 raise EOFError()
             now = time.time()

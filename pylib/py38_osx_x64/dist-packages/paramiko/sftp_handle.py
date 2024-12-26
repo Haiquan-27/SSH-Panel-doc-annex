@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Abstraction of an SFTP file handle (for server mode).
@@ -87,7 +87,7 @@ class SFTPHandle(ClosingContextManager):
 
         :param offset: position in the file to start reading from.
         :param int length: number of bytes to attempt to read.
-        :return: the `bytes` read, or an error code `int`.
+        :return: data read from the file, or an SFTP error code, as a `str`.
         """
         readfile = getattr(self, "readfile", None)
         if readfile is None:
@@ -120,7 +120,7 @@ class SFTPHandle(ClosingContextManager):
         refer to the same file.
 
         :param offset: position in the file to start reading from.
-        :param bytes data: data to write into the file.
+        :param str data: data to write into the file.
         :return: an SFTP error code like ``SFTP_OK``.
         """
         writefile = getattr(self, "writefile", None)

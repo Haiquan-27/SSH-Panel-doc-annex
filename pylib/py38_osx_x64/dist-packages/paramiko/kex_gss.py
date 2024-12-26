@@ -17,7 +17,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 
 """
@@ -40,16 +40,10 @@ This module provides GSS-API / SSPI Key Exchange as defined in :rfc:`4462`.
 import os
 from hashlib import sha1
 
-from paramiko.common import (
-    DEBUG,
-    max_byte,
-    zero_byte,
-    byte_chr,
-    byte_mask,
-    byte_ord,
-)
+from paramiko.common import DEBUG, max_byte, zero_byte
 from paramiko import util
 from paramiko.message import Message
+from paramiko.py3compat import byte_chr, byte_mask, byte_ord
 from paramiko.ssh_exception import SSHException
 
 
@@ -73,7 +67,7 @@ from paramiko.ssh_exception import SSHException
 ]
 
 
-class KexGSSGroup1:
+class KexGSSGroup1(object):
     """
     GSS-API / SSPI Authenticated Diffie-Hellman Key Exchange as defined in `RFC
     4462 Section 2 <https://tools.ietf.org/html/rfc4462.html#section-2>`_
@@ -82,7 +76,7 @@ class KexGSSGroup1:
     # draft-ietf-secsh-transport-09.txt, page 17
     P = 0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE65381FFFFFFFFFFFFFFFF  # noqa
     G = 2
-    b7fffffffffffffff = byte_chr(0x7F) + max_byte * 7  # noqa
+    b7fffffffffffffff = byte_chr(0x7f) + max_byte * 7  # noqa
     b0000000000000000 = zero_byte * 8  # noqa
     NAME = "gss-group1-sha1-toWM5Slw5Ew8Mqkay+al2g=="
 
@@ -125,7 +119,7 @@ class KexGSSGroup1:
         Parse the next packet.
 
         :param ptype: The (string) type of the incoming packet
-        :param `.Message` m: The packet content
+        :param `.Message` m: The paket content
         """
         if self.transport.server_mode and (ptype == MSG_KEXGSS_INIT):
             return self._parse_kexgss_init(m)
@@ -152,7 +146,7 @@ class KexGSSGroup1:
         """
         while 1:
             x_bytes = os.urandom(128)
-            x_bytes = byte_mask(x_bytes[0], 0x7F) + x_bytes[1:]
+            x_bytes = byte_mask(x_bytes[0], 0x7f) + x_bytes[1:]
             first = x_bytes[:8]
             if first not in (self.b7fffffffffffffff, self.b0000000000000000):
                 break
@@ -333,7 +327,7 @@ class KexGSSGroup14(KexGSSGroup1):
     NAME = "gss-group14-sha1-toWM5Slw5Ew8Mqkay+al2g=="
 
 
-class KexGSSGex:
+class KexGSSGex(object):
     """
     GSS-API / SSPI Authenticated Diffie-Hellman Group Exchange as defined in
     `RFC 4462 Section 2 <https://tools.ietf.org/html/rfc4462.html#section-2>`_
@@ -380,7 +374,7 @@ class KexGSSGex:
         Parse the next packet.
 
         :param ptype: The (string) type of the incoming packet
-        :param `.Message` m: The packet content
+        :param `.Message` m: The paket content
         """
         if ptype == MSG_KEXGSS_GROUPREQ:
             return self._parse_kexgss_groupreq(m)
@@ -407,7 +401,7 @@ class KexGSSGex:
         qnorm = util.deflate_long(q, 0)
         qhbyte = byte_ord(qnorm[0])
         byte_count = len(qnorm)
-        qmask = 0xFF
+        qmask = 0xff
         while not (qhbyte & 0x80):
             qhbyte <<= 1
             qmask >>= 1
@@ -669,7 +663,7 @@ Error Message: {}
         )
 
 
-class NullHostKey:
+class NullHostKey(object):
     """
     This class represents the Null Host Key for GSS-API Key Exchange as defined
     in `RFC 4462 Section 5

@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Attempt to generalize the "feeder" part of a `.Channel`: an object which can be
@@ -25,7 +25,7 @@ read operations are blocking and can have a timeout set.
 import array
 import threading
 import time
-from paramiko.util import b
+from paramiko.py3compat import PY2, b
 
 
 class PipeTimeout(IOError):
@@ -36,7 +36,7 @@ class PipeTimeout(IOError):
     pass
 
 
-class BufferedPipe:
+class BufferedPipe(object):
     """
     A buffer that obeys normal read (with timeout) & close semantics for a
     file or socket, but is fed data from another thread.  This is used by
@@ -50,11 +50,21 @@ class BufferedPipe:
         self._buffer = array.array("B")
         self._closed = False
 
-    def _buffer_frombytes(self, data):
-        self._buffer.frombytes(data)
+    if PY2:
 
-    def _buffer_tobytes(self, limit=None):
-        return self._buffer[:limit].tobytes()
+        def _buffer_frombytes(self, data):
+            self._buffer.fromstring(data)
+
+        def _buffer_tobytes(self, limit=None):
+            return self._buffer[:limit].tostring()
+
+    else:
+
+        def _buffer_frombytes(self, data):
+            self._buffer.frombytes(data)
+
+        def _buffer_tobytes(self, limit=None):
+            return self._buffer[:limit].tobytes()
 
     def set_event(self, event):
         """
@@ -91,7 +101,7 @@ class BufferedPipe:
             if self._event is not None:
                 self._event.set()
             self._buffer_frombytes(b(data))
-            self._cv.notify_all()
+            self._cv.notifyAll()
         finally:
             self._lock.release()
 
@@ -193,7 +203,7 @@ class BufferedPipe:
         self._lock.acquire()
         try:
             self._closed = True
-            self._cv.notify_all()
+            self._cv.notifyAll()
             if self._event is not None:
                 self._event.set()
         finally:

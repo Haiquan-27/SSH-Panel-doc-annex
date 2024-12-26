@@ -7,14 +7,14 @@
 # Software Foundation; either version 2.1 of the License, or (at your option)
 # any later version.
 #
-# Paramiko is distributed in the hope that it will be useful, but WITHOUT ANY
+# Paramiko is distrubuted in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
 # A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
 # details.
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 ECDSA keys
@@ -36,7 +36,7 @@ from paramiko.ssh_exception import SSHException
 from paramiko.util import deflate_long
 
 
-class _ECDSACurve:
+class _ECDSACurve(object):
     """
     Represents a specific ECDSA Curve (nistp256, nistp384, etc).
 
@@ -63,7 +63,7 @@ class _ECDSACurve:
         self.curve_class = curve_class
 
 
-class _ECDSACurveSet:
+class _ECDSACurveSet(object):
     """
     A collection to hold the ECDSA curves. Allows querying by oid and by key
     format identifier. The two ways in which ECDSAKey needs to be able to look
@@ -114,7 +114,6 @@ class ECDSAKey(PKey):
         password=None,
         vals=None,
         file_obj=None,
-        # TODO 4.0: remove; it does nothing since porting to cryptography.io
         validate_point=True,
     ):
         self.verifying_key = None
@@ -169,13 +168,8 @@ class ECDSAKey(PKey):
                 raise SSHException("Invalid public key")
 
     @classmethod
-    def identifiers(cls):
-        return cls._ECDSA_CURVES.get_key_format_identifier_list()
-
-    # TODO 4.0: deprecate/remove
-    @classmethod
     def supported_key_format_identifiers(cls):
-        return cls.identifiers()
+        return cls._ECDSA_CURVES.get_key_format_identifier_list()
 
     def asbytes(self):
         key = self.verifying_key

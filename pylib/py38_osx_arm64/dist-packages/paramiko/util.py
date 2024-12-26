@@ -14,34 +14,30 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Useful functions used by the rest of paramiko.
 """
 
+from __future__ import generators
 
+import errno
 import sys
 import struct
 import traceback
 import threading
 import logging
 
-from paramiko.common import (
-    DEBUG,
-    zero_byte,
-    xffffffff,
-    max_byte,
-    byte_ord,
-    byte_chr,
-)
+from paramiko.common import DEBUG, zero_byte, xffffffff, max_byte
+from paramiko.py3compat import PY2, long, byte_chr, byte_ord, b
 from paramiko.config import SSHConfig
 
 
 def inflate_long(s, always_positive=False):
     """turns a normalized byte string into a long-int
     (adapted from Crypto.Util.number)"""
-    out = 0
+    out = long(0)
     negative = 0
     if not always_positive and (len(s) > 0) and (byte_ord(s[0]) >= 0x80):
         negative = 1
@@ -55,8 +51,12 @@ def inflate_long(s, always_positive=False):
     for i in range(0, len(s), 4):
         out = (out << 32) + struct.unpack(">I", s[i : i + 4])[0]
     if negative:
-        out -= 1 << (8 * len(s))
+        out -= long(1) << (8 * len(s))
     return out
+
+
+deflate_zero = zero_byte if PY2 else 0
+deflate_ff = max_byte if PY2 else 0xff
 
 
 def deflate_long(n, add_sign_padding=True):
@@ -64,15 +64,15 @@ def deflate_long(n, add_sign_padding=True):
     (adapted from Crypto.Util.number)"""
     # after much testing, this algorithm was deemed to be the fastest
     s = bytes()
-    n = int(n)
+    n = long(n)
     while (n != 0) and (n != -1):
         s = struct.pack(">I", n & xffffffff) + s
         n >>= 32
     # strip off leading zeros, FFs
     for i in enumerate(s):
-        if (n == 0) and (i[1] != 0):
+        if (n == 0) and (i[1] != deflate_zero):
             break
-        if (n == -1) and (i[1] != 0xFF):
+        if (n == -1) and (i[1] != deflate_ff):
             break
     else:
         # degenerate case, n was either 0 or -1
@@ -148,10 +148,10 @@ def generate_key_bytes(hash_alg, salt, key, nbytes):
     :param function hash_alg: A function which creates a new hash object, such
         as ``hashlib.sha256``.
     :param salt: data to salt the hash with.
-    :type bytes salt: Hash salt bytes.
+    :type salt: byte string
     :param str key: human-entered password or passphrase.
     :param int nbytes: number of bytes to generate.
-    :return: Key data, as `bytes`.
+    :return: Key data `str`
     """
     keydata = bytes()
     digest = bytes()
@@ -225,20 +225,24 @@ def mod_inverse(x, m):
     return u2
 
 
-_g_thread_data = threading.local()
+_g_thread_ids = {}
 _g_thread_counter = 0
 _g_thread_lock = threading.Lock()
 
 
 def get_thread_id():
-    global _g_thread_data, _g_thread_counter, _g_thread_lock
+    global _g_thread_ids, _g_thread_counter, _g_thread_lock
+    tid = id(threading.currentThread())
     try:
-        return _g_thread_data.id
-    except AttributeError:
-        with _g_thread_lock:
+        return _g_thread_ids[tid]
+    except KeyError:
+        _g_thread_lock.acquire()
+        try:
             _g_thread_counter += 1
-            _g_thread_data.id = _g_thread_counter
-        return _g_thread_data.id
+            ret = _g_thread_ids[tid] = _g_thread_counter
+        finally:
+            _g_thread_lock.release()
+        return ret
 
 
 def log_to_file(filename, level=DEBUG):
@@ -257,7 +261,7 @@ def log_to_file(filename, level=DEBUG):
 
 
 # make only one filter object, so it doesn't get applied more than once
-class PFilter:
+class PFilter(object):
     def filter(self, record):
         record._threadid = get_thread_id()
         return True
@@ -272,17 +276,27 @@ def get_logger(name):
     return logger
 
 
+def retry_on_signal(function):
+    """Retries function until it doesn't raise an EINTR error"""
+    while True:
+        try:
+            return function()
+        except EnvironmentError as e:
+            if e.errno != errno.EINTR:
+                raise
+
+
 def constant_time_bytes_eq(a, b):
     if len(a) != len(b):
         return False
     res = 0
     # noinspection PyUnresolvedReferences
-    for i in range(len(a)):  # noqa: F821
+    for i in (xrange if PY2 else range)(len(a)):  # noqa: F821
         res |= byte_ord(a[i]) ^ byte_ord(b[i])
     return res == 0
 
 
-class ClosingContextManager:
+class ClosingContextManager(object):
     def __enter__(self):
         return self
 
@@ -292,46 +306,3 @@ class ClosingContextManager:
 
 def clamp_value(minimum, val, maximum):
     return max(minimum, min(val, maximum))
-
-
-def asbytes(s):
-    """
-    Coerce to bytes if possible or return unchanged.
-    """
-    try:
-        # Attempt to run through our version of b(), which does the Right Thing
-        # for unicode strings vs bytestrings, and raises TypeError if it's not
-        # one of those types.
-        return b(s)
-    except TypeError:
-        try:
-            # If it wasn't a string/byte/buffer-ish object, try calling an
-            # asbytes() method, which many of our internal classes implement.
-            return s.asbytes()
-        except AttributeError:
-            # Finally, just do nothing & assume this object is sufficiently
-            # byte-y or buffer-y that everything will work out (or that callers
-            # are capable of handling whatever it is.)
-            return s
-
-
-# TODO: clean this up / force callers to assume bytes OR unicode
-def b(s, encoding="utf8"):
-    """cast unicode or bytes to bytes"""
-    if isinstance(s, bytes):
-        return s
-    elif isinstance(s, str):
-        return s.encode(encoding)
-    else:
-        raise TypeError(f"Expected unicode or bytes, got {type(s)}")
-
-
-# TODO: clean this up / force callers to assume bytes OR unicode
-def u(s, encoding="utf8"):
-    """cast bytes or unicode to unicode"""
-    if isinstance(s, bytes):
-        return s.decode(encoding)
-    elif isinstance(s, str):
-        return s
-    else:
-        raise TypeError(f"Expected unicode or bytes, got {type(s)}")

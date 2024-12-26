@@ -5,14 +5,14 @@
 # Software Foundation; either version 2.1 of the License, or (at your option)
 # any later version.
 #
-# Paramiko is distributed in the hope that it will be useful, but WITHOUT ANY
+# Paramiko is distrubuted in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
 # A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
 # details.
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 import bcrypt
 
@@ -23,7 +23,7 @@ import nacl.signing
 
 from paramiko.message import Message
 from paramiko.pkey import PKey, OPENSSH_AUTH_MAGIC, _unpad_openssh
-from paramiko.util import b
+from paramiko.py3compat import b
 from paramiko.ssh_exception import SSHException, PasswordRequiredException
 
 
@@ -39,8 +39,6 @@ class Ed25519Key(PKey):
         Added a ``file_obj`` parameter to match other key classes.
     """
 
-    name = "ssh-ed25519"
-
     def __init__(
         self, msg=None, data=None, filename=None, password=None, file_obj=None
     ):
@@ -51,7 +49,7 @@ class Ed25519Key(PKey):
         if msg is not None:
             self._check_type_and_load_cert(
                 msg=msg,
-                key_type=self.name,
+                key_type="ssh-ed25519",
                 cert_type="ssh-ed25519-cert-v01@openssh.com",
             )
             verifying_key = nacl.signing.VerifyKey(msg.get_binary())
@@ -110,7 +108,7 @@ class Ed25519Key(PKey):
         public_keys = []
         for _ in range(num_keys):
             pubkey = Message(message.get_binary())
-            if pubkey.get_text() != self.name:
+            if pubkey.get_text() != "ssh-ed25519":
                 raise SSHException("Invalid key")
             public_keys.append(pubkey.get_binary())
 
@@ -143,7 +141,7 @@ class Ed25519Key(PKey):
 
         signing_keys = []
         for i in range(num_keys):
-            if message.get_text() != self.name:
+            if message.get_text() != "ssh-ed25519":
                 raise SSHException("Invalid key")
             # A copy of the public key, again, ignore.
             public = message.get_binary()
@@ -172,7 +170,7 @@ class Ed25519Key(PKey):
         else:
             v = self._verifying_key
         m = Message()
-        m.add_string(self.name)
+        m.add_string("ssh-ed25519")
         m.add_string(v.encode())
         return m.asbytes()
 
@@ -184,9 +182,8 @@ class Ed25519Key(PKey):
             v = self._verifying_key
         return (self.get_name(), v)
 
-    # TODO 4.0: remove
     def get_name(self):
-        return self.name
+        return "ssh-ed25519"
 
     def get_bits(self):
         return 256
@@ -196,12 +193,12 @@ class Ed25519Key(PKey):
 
     def sign_ssh_data(self, data, algorithm=None):
         m = Message()
-        m.add_string(self.name)
+        m.add_string("ssh-ed25519")
         m.add_string(self._signing_key.sign(data).signature)
         return m
 
     def verify_ssh_sig(self, data, msg):
-        if msg.get_text() != self.name:
+        if msg.get_text() != "ssh-ed25519":
             return False
 
         try:

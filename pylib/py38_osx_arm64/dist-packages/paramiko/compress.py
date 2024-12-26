@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Compression implementations for a Transport.
@@ -23,7 +23,7 @@ Compression implementations for a Transport.
 import zlib
 
 
-class ZlibCompressor:
+class ZlibCompressor(object):
     def __init__(self):
         # Use the default level of zlib compression
         self.z = zlib.compressobj()
@@ -32,7 +32,7 @@ class ZlibCompressor:
         return self.z.compress(data) + self.z.flush(zlib.Z_FULL_FLUSH)
 
 
-class ZlibDecompressor:
+class ZlibDecompressor(object):
     def __init__(self):
         self.z = zlib.decompressobj()
 

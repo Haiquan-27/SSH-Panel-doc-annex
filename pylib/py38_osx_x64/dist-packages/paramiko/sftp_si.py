@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 An interface to override for SFTP server support.
@@ -25,7 +25,7 @@ import sys
 from paramiko.sftp import SFTP_OP_UNSUPPORTED
 
 
-class SFTPServerInterface:
+class SFTPServerInterface(object):
     """
     This class defines an interface for controlling the behavior of paramiko
     when using the `.SFTPServer` subsystem to provide an SFTP server.
@@ -40,7 +40,7 @@ class SFTPServerInterface:
     clients & servers obey the requirement that paths be encoded in UTF-8.
     """
 
-    def __init__(self, server, *args, **kwargs):
+    def __init__(self, server, *largs, **kwargs):
         """
         Create a new SFTPServerInterface object.  This method does nothing by
         default and is meant to be overridden by subclasses.
@@ -48,7 +48,7 @@ class SFTPServerInterface:
         :param .ServerInterface server:
             the server object associated with this channel and SFTP subsystem
         """
-        super().__init__(*args, **kwargs)
+        super(SFTPServerInterface, self).__init__(*largs, **kwargs)
 
     def session_started(self):
         """

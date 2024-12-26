@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 """
 Configuration file (aka ``ssh_config``) support.
@@ -27,9 +27,9 @@ import os
 import re
 import shlex
 import socket
-from hashlib import sha1
-from io import StringIO
 from functools import partial
+
+from .py3compat import StringIO
 
 invoke, invoke_import_error = None, None
 try:
@@ -43,7 +43,7 @@ from .ssh_exception import CouldNotCanonicalize, ConfigParseError
 SSH_PORT = 22
 
 
-class SSHConfig:
+class SSHConfig(object):
     """
     Representation of config information as stored in the format used by
     OpenSSH. Queries can be made via `lookup`. The format is described in
@@ -59,14 +59,13 @@ class SSHConfig:
     # TODO: do a full scan of ssh.c & friends to make sure we're fully
     # compatible across the board, e.g. OpenSSH 8.1 added %n to ProxyCommand.
     TOKENS_BY_CONFIG_KEY = {
-        "controlpath": ["%C", "%h", "%l", "%L", "%n", "%p", "%r", "%u"],
+        "controlpath": ["%h", "%l", "%L", "%n", "%p", "%r", "%u"],
         "hostname": ["%h"],
-        "identityfile": ["%C", "~", "%d", "%h", "%l", "%u", "%r"],
+        "identityfile": ["~", "%d", "%h", "%l", "%u", "%r"],
         "proxycommand": ["~", "%h", "%p", "%r"],
-        "proxyjump": ["%h", "%p", "%r"],
         # Doesn't seem worth making this 'special' for now, it will fit well
         # enough (no actual match-exec config key to be confused with).
-        "match-exec": ["%C", "%d", "%h", "%L", "%l", "%n", "%p", "%r", "%u"],
+        "match-exec": ["%d", "%h", "%L", "%l", "%n", "%p", "%r", "%u"],
     }
 
     def __init__(self):
@@ -149,7 +148,7 @@ class SSHConfig:
                 self._config.append(context)
                 context = {"config": {}}
                 if key == "host":
-                    # TODO 4.0: make these real objects or at least name this
+                    # TODO 3.0: make these real objects or at least name this
                     # "hosts" to acknowledge it's an iterable. (Doing so prior
                     # to 3.0, despite it being a private API, feels bad -
                     # surely such an old codebase has folks actually relying on
@@ -159,8 +158,9 @@ class SSHConfig:
                     context["matches"] = self._get_matches(value)
             # Special-case for noop ProxyCommands
             elif key == "proxycommand" and value.lower() == "none":
-                # Store 'none' as None - not as a string implying that the
-                # proxycommand is the literal shell command "none"!
+                # Store 'none' as None; prior to 3.x, it will get stripped out
+                # at the end (for compatibility with issue #415). After 3.x, it
+                # will simply not get stripped, leaving a nice explicit marker.
                 context["config"][key] = None
             # All other keywords get stored, directly or via append
             else:
@@ -218,8 +218,6 @@ class SSHConfig:
             Added canonicalization support.
         .. versionchanged:: 2.7
             Added ``Match`` support.
-        .. versionchanged:: 3.3
-            Added ``Match final`` support.
         """
         # First pass
         options = self._lookup(hostname=hostname)
@@ -237,16 +235,10 @@ class SSHConfig:
             hostname = self.canonicalize(hostname, options, domains)
             # Overwrite HostName again here (this is also what OpenSSH does)
             options["hostname"] = hostname
-            options = self._lookup(
-                hostname, options, canonical=True, final=True
-            )
-        else:
-            options = self._lookup(
-                hostname, options, canonical=False, final=True
-            )
+            options = self._lookup(hostname, options, canonical=True)
         return options
 
-    def _lookup(self, hostname, options=None, canonical=False, final=False):
+    def _lookup(self, hostname, options=None, canonical=False):
         # Init
         if options is None:
             options = SSHConfigDict()
@@ -256,11 +248,7 @@ class SSHConfig:
             if not (
                 self._pattern_matches(context.get("host", []), hostname)
                 or self._does_match(
-                    context.get("matches", []),
-                    hostname,
-                    canonical,
-                    final,
-                    options,
+                    context.get("matches", []), hostname, canonical, options
                 )
             ):
                 continue
@@ -275,10 +263,12 @@ class SSHConfig:
                     options[key].extend(
                         x for x in value if x not in options[key]
                     )
-        if final:
-            # Expand variables in resulting values
-            # (besides 'Match exec' which was already handled above)
-            options = self._expand_variables(options, hostname)
+        # Expand variables in resulting values (besides 'Match exec' which was
+        # already handled above)
+        options = self._expand_variables(options, hostname)
+        # TODO: remove in 3.x re #670
+        if "proxycommand" in options and options["proxycommand"] is None:
+            del options["proxycommand"]
         return options
 
     def canonicalize(self, hostname, options, domains):
@@ -349,9 +339,11 @@ class SSHConfig:
                 match = True
         return match
 
-    def _does_match(
-        self, match_list, target_hostname, canonical, final, options
-    ):
+    # TODO 3.0: remove entirely (is now unused internally)
+    def _allowed(self, hosts, hostname):
+        return self._pattern_matches(hosts, hostname)
+
+    def _does_match(self, match_list, target_hostname, canonical, options):
         matched = []
         candidates = match_list[:]
         local_username = getpass.getuser()
@@ -368,8 +360,6 @@ class SSHConfig:
             if type_ == "canonical":
                 if self._should_fail(canonical, candidate):
                     return False
-            if type_ == "final":
-                passed = final
             # The parse step ensures we only see this by itself or after
             # canonical, so it's also an easy hard pass. (No negation here as
             # that would be uh, pretty weird?)
@@ -442,11 +432,10 @@ class SSHConfig:
         local_hostname = socket.gethostname().split(".")[0]
         local_fqdn = LazyFqdn(config, local_hostname)
         homedir = os.path.expanduser("~")
-        tohash = local_hostname + target_hostname + repr(port) + remoteuser
         # The actual tokens!
         replacements = {
             # TODO: %%???
-            "%C": sha1(tohash.encode()).hexdigest(),
+            # TODO: %C?
             "%d": homedir,
             "%h": configured_hostname,
             # TODO: %i?
@@ -528,7 +517,7 @@ class SSHConfig:
                 type_ = type_[1:]
             match["type"] = type_
             # all/canonical have no params (everything else does)
-            if type_ in ("all", "canonical", "final"):
+            if type_ in ("all", "canonical"):
                 matches.append(match)
                 continue
             if not tokens:
@@ -593,7 +582,7 @@ def _addressfamily_host_lookup(hostname, options):
         pass
 
 
-class LazyFqdn:
+class LazyFqdn(object):
     """
     Returns the host's fqdn on request as string.
     """
@@ -664,6 +653,10 @@ class SSHConfigDict(dict):
 
     .. versionadded:: 2.5
     """
+
+    def __init__(self, *args, **kwargs):
+        # Hey, guess what? Python 2's userdict is an old-style class!
+        super(SSHConfigDict, self).__init__(*args, **kwargs)
 
     def as_bool(self, key):
         """
