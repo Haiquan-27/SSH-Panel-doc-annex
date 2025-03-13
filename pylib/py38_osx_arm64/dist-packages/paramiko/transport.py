@@ -15,13 +15,12 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
+# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
 
 """
 Core protocol implementation
 """
 
-from __future__ import print_function
 import os
 import socket
 import sys
@@ -31,11 +30,16 @@ import weakref
 from hashlib import md5, sha1, sha256, sha512
 
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.ciphers import algorithms, Cipher, modes
+from cryptography.hazmat.primitives.ciphers import (
+    algorithms,
+    Cipher,
+    modes,
+    aead,
+)
 
 import paramiko
 from paramiko import util
-from paramiko.auth_handler import AuthHandler
+from paramiko.auth_handler import AuthHandler, AuthOnlyHandler
 from paramiko.ssh_gss import GSSAuth
 from paramiko.channel import Channel
 from paramiko.common import (
@@ -65,6 +69,8 @@ from paramiko.common import (
     MSG_GLOBAL_REQUEST,
     MSG_REQUEST_SUCCESS,
     MSG_REQUEST_FAILURE,
+    cMSG_SERVICE_REQUEST,
+    MSG_SERVICE_ACCEPT,
     MSG_CHANNEL_OPEN_SUCCESS,
     MSG_CHANNEL_OPEN_FAILURE,
     MSG_CHANNEL_OPEN,
@@ -86,6 +92,7 @@ from paramiko.common import (
     MSG_NAMES,
     MSG_EXT_INFO,
     cMSG_EXT_INFO,
+    byte_ord,
 )
 from paramiko.compress import ZlibCompressor, ZlibDecompressor
 from paramiko.dsskey import DSSKey
@@ -100,19 +107,37 @@ from paramiko.kex_gss import KexGSSGex, KexGSSGroup1, KexGSSGroup14
 from paramiko.message import Message
 from paramiko.packet import Packetizer, NeedRekeyException
 from paramiko.primes import ModulusPack
-from paramiko.py3compat import string_types, long, byte_ord, b, input, PY2
 from paramiko.rsakey import RSAKey
 from paramiko.ecdsakey import ECDSAKey
 from paramiko.server import ServerInterface
 from paramiko.sftp_client import SFTPClient
 from paramiko.ssh_exception import (
-    SSHException,
     BadAuthenticationType,
     ChannelException,
     IncompatiblePeer,
+    MessageOrderError,
     ProxyCommandFailure,
+    SSHException,
 )
-from paramiko.util import retry_on_signal, ClosingContextManager, clamp_value
+from paramiko.util import (
+    ClosingContextManager,
+    clamp_value,
+    b,
+)
+
+
+# TripleDES is moving from `cryptography.hazmat.primitives.ciphers.algorithms`
+# in cryptography>=43.0.0 to `cryptography.hazmat.decrepit.ciphers.algorithms`
+# It will be removed from `cryptography.hazmat.primitives.ciphers.algorithms`
+# in cryptography==48.0.0.
+#
+# Source References:
+# - https://github.com/pyca/cryptography/commit/722a6393e61b3ac
+# - https://github.com/pyca/cryptography/pull/11407/files
+try:
+    from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+except ImportError:
+    from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
 
 
 # for thread cleanup
@@ -158,8 +183,9 @@ class Transport(threading.Thread, ClosingContextManager):
         "aes128-cbc",
         "aes192-cbc",
         "aes256-cbc",
-        "blowfish-cbc",
         "3des-cbc",
+        "aes128-gcm@openssh.com",
+        "aes256-gcm@openssh.com",
     )
     _preferred_macs = (
         "hmac-sha2-256",
@@ -232,12 +258,6 @@ class Transport(threading.Thread, ClosingContextManager):
             "block-size": 16,
             "key-size": 32,
         },
-        "blowfish-cbc": {
-            "class": algorithms.Blowfish,
-            "mode": modes.CBC,
-            "block-size": 8,
-            "key-size": 16,
-        },
         "aes128-cbc": {
             "class": algorithms.AES,
             "mode": modes.CBC,
@@ -257,10 +277,24 @@ class Transport(threading.Thread, ClosingContextManager):
             "key-size": 32,
         },
         "3des-cbc": {
-            "class": algorithms.TripleDES,
+            "class": TripleDES,
             "mode": modes.CBC,
             "block-size": 8,
             "key-size": 24,
+        },
+        "aes128-gcm@openssh.com": {
+            "class": aead.AESGCM,
+            "block-size": 16,
+            "iv-size": 12,
+            "key-size": 16,
+            "is_aead": True,
+        },
+        "aes256-gcm@openssh.com": {
+            "class": aead.AESGCM,
+            "block-size": 16,
+            "iv-size": 12,
+            "key-size": 32,
+            "is_aead": True,
         },
     }
 
@@ -336,6 +370,8 @@ class Transport(threading.Thread, ClosingContextManager):
         gss_deleg_creds=True,
         disabled_algorithms=None,
         server_sig_algs=True,
+        strict_kex=True,
+        packetizer_class=None,
     ):
         """
         Create a new SSH session over an existing socket, or socket-like
@@ -346,8 +382,8 @@ class Transport(threading.Thread, ClosingContextManager):
         If the object is not actually a socket, it must have the following
         methods:
 
-        - ``send(str)``: Writes from 1 to ``len(str)`` bytes, and returns an
-          int representing the number of bytes written.  Returns
+        - ``send(bytes)``: Writes from 1 to ``len(bytes)`` bytes, and returns
+          an int representing the number of bytes written.  Returns
           0 or raises ``EOFError`` if the stream has been closed.
         - ``recv(int)``: Reads from 1 to ``int`` bytes and returns them as a
           string.  Returns 0 or raises ``EOFError`` if the stream has been
@@ -402,6 +438,13 @@ class Transport(threading.Thread, ClosingContextManager):
             Whether to send an extra message to compatible clients, in server
             mode, with a list of supported pubkey algorithms. Default:
             ``True``.
+        :param bool strict_kex:
+            Whether to advertise (and implement, if client also advertises
+            support for) a "strict kex" mode for safer handshaking. Default:
+            ``True``.
+        :param packetizer_class:
+            Which class to use for instantiating the internal packet handler.
+            Default: ``None`` (i.e.: use `Packetizer` as normal).
 
         .. versionchanged:: 1.15
             Added the ``default_window_size`` and ``default_max_packet_size``
@@ -412,12 +455,20 @@ class Transport(threading.Thread, ClosingContextManager):
             Added the ``disabled_algorithms`` kwarg.
         .. versionchanged:: 2.9
             Added the ``server_sig_algs`` kwarg.
+        .. versionchanged:: 3.4
+            Added the ``strict_kex`` kwarg.
+        .. versionchanged:: 3.4
+            Added the ``packetizer_class`` kwarg.
         """
         self.active = False
         self.hostname = None
         self.server_extensions = {}
+        self.advertise_strict_kex = strict_kex
+        self.agreed_on_strict_kex = False
 
-        if isinstance(sock, string_types):
+        # TODO: these two overrides on sock's type should go away sometime, too
+        # many ways to do it!
+        if isinstance(sock, str):
             # convert "host:port" into (host, port)
             hl = sock.split(":", 1)
             self.hostname = hl[0]
@@ -439,7 +490,7 @@ class Transport(threading.Thread, ClosingContextManager):
                     # addr = sockaddr
                     sock = socket.socket(af, socket.SOCK_STREAM)
                     try:
-                        retry_on_signal(lambda: sock.connect((hostname, port)))
+                        sock.connect((hostname, port))
                     except socket.error as e:
                         reason = str(e)
                     else:
@@ -450,14 +501,14 @@ class Transport(threading.Thread, ClosingContextManager):
                 )
         # okay, normal socket-ish flow here...
         threading.Thread.__init__(self)
-        self.setDaemon(True)
+        self.daemon = True
         self.sock = sock
         # we set the timeout so we can check self.active periodically to
         # see if we should bail. socket.timeout exception is never propagated.
         self.sock.settimeout(self._active_check_timeout)
 
         # negotiated crypto parameters
-        self.packetizer = Packetizer(sock)
+        self.packetizer = (packetizer_class or Packetizer)(sock)
         self.local_version = "SSH-" + self._PROTO_ID + "-" + self._CLIENT_ID
         self.remote_version = ""
         self.local_cipher = self.remote_cipher = ""
@@ -520,6 +571,8 @@ class Transport(threading.Thread, ClosingContextManager):
         self.handshake_timeout = 15
         # how long (seconds) to wait for the auth response.
         self.auth_timeout = 30
+        # how long (seconds) to wait for opening a channel
+        self.channel_timeout = 60 * 60
         self.disabled_algorithms = disabled_algorithms or {}
         self.server_sig_algs = server_sig_algs
 
@@ -530,6 +583,20 @@ class Transport(threading.Thread, ClosingContextManager):
         self.server_accepts = []
         self.server_accept_cv = threading.Condition(self.lock)
         self.subsystem_table = {}
+
+        # Handler table, now set at init time for easier per-instance
+        # manipulation and subclass twiddling.
+        self._handler_table = {
+            MSG_EXT_INFO: self._parse_ext_info,
+            MSG_NEWKEYS: self._parse_newkeys,
+            MSG_GLOBAL_REQUEST: self._parse_global_request,
+            MSG_REQUEST_SUCCESS: self._parse_request_success,
+            MSG_REQUEST_FAILURE: self._parse_request_failure,
+            MSG_CHANNEL_OPEN_SUCCESS: self._parse_channel_open_success,
+            MSG_CHANNEL_OPEN_FAILURE: self._parse_channel_open_failure,
+            MSG_CHANNEL_OPEN: self._parse_channel_open,
+            MSG_KEXINIT: self._negotiate_keys,
+        }
 
     def _filter_algorithm(self, type_):
         default = getattr(self, "_preferred_{}".format(type_))
@@ -549,7 +616,15 @@ class Transport(threading.Thread, ClosingContextManager):
 
     @property
     def preferred_keys(self):
-        return self._filter_algorithm("keys")
+        # Interleave cert variants here; resistant to various background
+        # overwriting of _preferred_keys, and necessary as hostkeys can't use
+        # the logic pubkey auth does re: injecting/checking for certs at
+        # runtime
+        filtered = self._filter_algorithm("keys")
+        return tuple(
+            filtered
+            + tuple("{}-cert-v01@openssh.com".format(x) for x in filtered)
+        )
 
     @property
     def preferred_pubkeys(self):
@@ -567,7 +642,7 @@ class Transport(threading.Thread, ClosingContextManager):
         """
         Returns a string representation of this object, for debugging.
         """
-        id_ = hex(long(id(self)) & xffffffff)
+        id_ = hex(id(self) & xffffffff)
         out = "<paramiko.Transport at {}".format(id_)
         if not self.active:
             out += " (unconnected)"
@@ -1004,14 +1079,14 @@ class Transport(threading.Thread, ClosingContextManager):
 
         :raises:
             `.SSHException` -- if the request is rejected, the session ends
-            prematurely or there is a timeout openning a channel
+            prematurely or there is a timeout opening a channel
 
         .. versionchanged:: 1.15
             Added the ``window_size`` and ``max_packet_size`` arguments.
         """
         if not self.active:
             raise SSHException("SSH session not active")
-        timeout = 3600 if timeout is None else timeout
+        timeout = self.channel_timeout if timeout is None else timeout
         self.lock.acquire()
         try:
             window_size = self._sanitize_window_size(window_size)
@@ -1411,7 +1486,7 @@ class Transport(threading.Thread, ClosingContextManager):
         finally:
             self.lock.release()
 
-    def set_subsystem_handler(self, name, handler, *larg, **kwarg):
+    def set_subsystem_handler(self, name, handler, *args, **kwargs):
         """
         Set the handler class for a subsystem in server mode.  If a request
         for this subsystem is made on an open ssh channel later, this handler
@@ -1427,7 +1502,7 @@ class Transport(threading.Thread, ClosingContextManager):
         """
         try:
             self.lock.acquire()
-            self.subsystem_table[name] = (handler, larg, kwarg)
+            self.subsystem_table[name] = (handler, args, kwargs)
         finally:
             self.lock.release()
 
@@ -1640,7 +1715,7 @@ class Transport(threading.Thread, ClosingContextManager):
         dumb wrapper around PAM.
 
         This method will block until the authentication succeeds or fails,
-        peroidically calling the handler asynchronously to get answers to
+        periodically calling the handler asynchronously to get answers to
         authentication questions.  The handler may be called more than once
         if the server continues to ask questions.
 
@@ -1688,7 +1763,7 @@ class Transport(threading.Thread, ClosingContextManager):
 
     def auth_interactive_dumb(self, username, handler=None, submethods=""):
         """
-        Autenticate to the server interactively but dumber.
+        Authenticate to the server interactively but dumber.
         Just print the prompt and / or instructions to stdout and send back
         the response. This is good for situations where partial auth is
         achieved by key and then the user has to enter a 2fac token.
@@ -1843,28 +1918,24 @@ class Transport(threading.Thread, ClosingContextManager):
     def stop_thread(self):
         self.active = False
         self.packetizer.close()
-        if PY2:
-            # Original join logic; #520 doesn't appear commonly present under
-            # Python 2.
-            while self.is_alive() and self is not threading.current_thread():
-                self.join(10)
-        else:
-            # Keep trying to join() our main thread, quickly, until:
-            # * We join()ed successfully (self.is_alive() == False)
-            # * Or it looks like we've hit issue #520 (socket.recv hitting some
-            # race condition preventing it from timing out correctly), wherein
-            # our socket and packetizer are both closed (but where we'd
-            # otherwise be sitting forever on that recv()).
-            while (
-                self.is_alive()
-                and self is not threading.current_thread()
-                and not self.sock._closed
-                and not self.packetizer.closed
-            ):
-                self.join(0.1)
+        # Keep trying to join() our main thread, quickly, until:
+        # * We join()ed successfully (self.is_alive() == False)
+        # * Or it looks like we've hit issue #520 (socket.recv hitting some
+        # race condition preventing it from timing out correctly), wherein
+        # our socket and packetizer are both closed (but where we'd
+        # otherwise be sitting forever on that recv()).
+        while (
+            self.is_alive()
+            and self is not threading.current_thread()
+            and not self.sock._closed
+            and not self.packetizer.closed
+        ):
+            self.join(0.1)
 
     # internals...
 
+    # TODO 4.0: make a public alias for this because multiple other classes
+    # already explicitly rely on it...or just rewrite logging :D
     def _log(self, level, msg, *args):
         if issubclass(type(msg), list):
             for m in msg:
@@ -1880,9 +1951,9 @@ class Transport(threading.Thread, ClosingContextManager):
         """you are holding the lock"""
         chanid = self._channel_counter
         while self._channels.get(chanid) is not None:
-            self._channel_counter = (self._channel_counter + 1) & 0xffffff
+            self._channel_counter = (self._channel_counter + 1) & 0xFFFFFF
             chanid = self._channel_counter
-        self._channel_counter = (self._channel_counter + 1) & 0xffffff
+        self._channel_counter = (self._channel_counter + 1) & 0xFFFFFF
         return chanid
 
     def _unlink_channel(self, chanid):
@@ -1975,19 +2046,26 @@ class Transport(threading.Thread, ClosingContextManager):
             sofar += digest
         return out[:nbytes]
 
-    def _get_cipher(self, name, key, iv, operation):
+    def _get_engine(self, name, key, iv=None, operation=None, aead=False):
         if name not in self._cipher_info:
-            raise SSHException("Unknown client cipher " + name)
+            raise SSHException("Unknown cipher " + name)
+        info = self._cipher_info[name]
+        algorithm = info["class"](key)
+        # AEAD types (eg GCM) use their algorithm class /as/ the encryption
+        # engine (they expose the same encrypt/decrypt API as a CipherContext)
+        if aead:
+            return algorithm
+        # All others go through the Cipher class.
+        cipher = Cipher(
+            algorithm=algorithm,
+            # TODO: why is this getting tickled in aesgcm mode???
+            mode=info["mode"](iv),
+            backend=default_backend(),
+        )
+        if operation is self._ENCRYPT:
+            return cipher.encryptor()
         else:
-            cipher = Cipher(
-                self._cipher_info[name]["class"](key),
-                self._cipher_info[name]["mode"](iv),
-                backend=default_backend(),
-            )
-            if operation is self._ENCRYPT:
-                return cipher.encryptor()
-            else:
-                return cipher.decryptor()
+            return cipher.decryptor()
 
     def _set_forward_agent_handler(self, handler):
         if handler is None:
@@ -2060,11 +2138,25 @@ class Transport(threading.Thread, ClosingContextManager):
             reply.add_string("")
             reply.add_string("en")
         # NOTE: Post-open channel messages do not need checking; the above will
-        # reject attemps to open channels, meaning that even if a malicious
+        # reject attempts to open channels, meaning that even if a malicious
         # user tries to send a MSG_CHANNEL_REQUEST, it will simply fall under
         # the logic that handles unknown channel IDs (as the channel list will
         # be empty.)
         return reply
+
+    def _enforce_strict_kex(self, ptype):
+        """
+        Conditionally raise `MessageOrderError` during strict initial kex.
+
+        This method should only be called inside code that handles non-KEXINIT
+        messages; it does not interrogate ``ptype`` besides using it to log
+        more accurately.
+        """
+        if self.agreed_on_strict_kex and not self.initial_kex_done:
+            name = MSG_NAMES.get(ptype, f"msg {ptype}")
+            raise MessageOrderError(
+                f"In strict-kex mode, but was sent {name!r}!"
+            )
 
     def run(self):
         # (use the exposed "run" method, because if we specify a thread target
@@ -2078,7 +2170,7 @@ class Transport(threading.Thread, ClosingContextManager):
 
         # active=True occurs before the thread is launched, to avoid a race
         _active_threads.append(self)
-        tid = hex(long(id(self)) & xffffffff)
+        tid = hex(id(self) & xffffffff)
         if self.server_mode:
             self._log(DEBUG, "starting thread (server mode): {}".format(tid))
         else:
@@ -2110,21 +2202,28 @@ class Transport(threading.Thread, ClosingContextManager):
                     except NeedRekeyException:
                         continue
                     if ptype == MSG_IGNORE:
+                        self._enforce_strict_kex(ptype)
                         continue
                     elif ptype == MSG_DISCONNECT:
                         self._parse_disconnect(m)
                         break
                     elif ptype == MSG_DEBUG:
+                        self._enforce_strict_kex(ptype)
                         self._parse_debug(m)
                         continue
                     if len(self._expected_packet) > 0:
                         if ptype not in self._expected_packet:
-                            raise SSHException(
+                            exc_class = SSHException
+                            if self.agreed_on_strict_kex:
+                                exc_class = MessageOrderError
+                            raise exc_class(
                                 "Expecting packet from {!r}, got {:d}".format(
                                     self._expected_packet, ptype
                                 )
                             )  # noqa
                         self._expected_packet = tuple()
+                        # These message IDs indicate key exchange & will differ
+                        # depending on exact exchange algorithm
                         if (ptype >= 30) and (ptype <= 41):
                             self.kex_engine.parse_next(ptype, m)
                             continue
@@ -2134,7 +2233,7 @@ class Transport(threading.Thread, ClosingContextManager):
                         if error_msg:
                             self._send_message(error_msg)
                         else:
-                            self._handler_table[ptype](self, m)
+                            self._handler_table[ptype](m)
                     elif ptype in self._channel_handler_table:
                         chanid = m.get_int()
                         chan = self._channels.get(chanid)
@@ -2160,7 +2259,7 @@ class Transport(threading.Thread, ClosingContextManager):
                         and ptype in self.auth_handler._handler_table
                     ):
                         handler = self.auth_handler._handler_table[ptype]
-                        handler(self.auth_handler, m)
+                        handler(m)
                         if len(self._expected_packet) > 0:
                             continue
                     else:
@@ -2341,11 +2440,17 @@ class Transport(threading.Thread, ClosingContextManager):
             )
         else:
             available_server_keys = self.preferred_keys
-            # Signal support for MSG_EXT_INFO.
+            # Signal support for MSG_EXT_INFO so server will send it to us.
             # NOTE: doing this here handily means we don't even consider this
             # value when agreeing on real kex algo to use (which is a common
             # pitfall when adding this apparently).
             kex_algos.append("ext-info-c")
+
+        # Similar to ext-info, but used in both server modes, so done outside
+        # of above if/else.
+        if self.advertise_strict_kex:
+            which = "s" if self.server_mode else "c"
+            kex_algos.append(f"kex-strict-{which}-v00@openssh.com")
 
         m = Message()
         m.add_byte(cMSG_KEXINIT)
@@ -2387,7 +2492,8 @@ class Transport(threading.Thread, ClosingContextManager):
 
     def _get_latest_kex_init(self):
         return self._really_parse_kex_init(
-            Message(self._latest_kex_init), ignore_first_byte=True
+            Message(self._latest_kex_init),
+            ignore_first_byte=True,
         )
 
     def _parse_kex_init(self, m):
@@ -2426,10 +2532,39 @@ class Transport(threading.Thread, ClosingContextManager):
         self._log(DEBUG, "kex follows: {}".format(kex_follows))
         self._log(DEBUG, "=== Key exchange agreements ===")
 
-        # Strip out ext-info "kex algo"
+        # Record, and strip out, ext-info and/or strict-kex non-algorithms
         self._remote_ext_info = None
-        if kex_algo_list[-1].startswith("ext-info-"):
-            self._remote_ext_info = kex_algo_list.pop()
+        self._remote_strict_kex = None
+        to_pop = []
+        for i, algo in enumerate(kex_algo_list):
+            if algo.startswith("ext-info-"):
+                self._remote_ext_info = algo
+                to_pop.insert(0, i)
+            elif algo.startswith("kex-strict-"):
+                # NOTE: this is what we are expecting from the /remote/ end.
+                which = "c" if self.server_mode else "s"
+                expected = f"kex-strict-{which}-v00@openssh.com"
+                # Set strict mode if agreed.
+                self.agreed_on_strict_kex = (
+                    algo == expected and self.advertise_strict_kex
+                )
+                self._log(
+                    DEBUG, f"Strict kex mode: {self.agreed_on_strict_kex}"
+                )
+                to_pop.insert(0, i)
+        for i in to_pop:
+            kex_algo_list.pop(i)
+
+        # CVE mitigation: expect zeroed-out seqno anytime we are performing kex
+        # init phase, if strict mode was negotiated.
+        if (
+            self.agreed_on_strict_kex
+            and not self.initial_kex_done
+            and m.seqno != 0
+        ):
+            raise MessageOrderError(
+                "In strict-kex mode, but KEXINIT was not the first packet!"
+            )
 
         # as a server, we pick the first item in the client's list that we
         # support.
@@ -2597,22 +2732,28 @@ class Transport(threading.Thread, ClosingContextManager):
 
     def _activate_inbound(self):
         """switch on newly negotiated encryption parameters for
-         inbound traffic"""
-        block_size = self._cipher_info[self.remote_cipher]["block-size"]
+        inbound traffic"""
+        info = self._cipher_info[self.remote_cipher]
+        aead = info.get("is_aead", False)
+        block_size = info["block-size"]
+        key_size = info["key-size"]
+        # Non-AEAD/GCM type ciphers' IV size is their block size.
+        iv_size = info.get("iv-size", block_size)
         if self.server_mode:
-            IV_in = self._compute_key("A", block_size)
-            key_in = self._compute_key(
-                "C", self._cipher_info[self.remote_cipher]["key-size"]
-            )
+            iv_in = self._compute_key("A", iv_size)
+            key_in = self._compute_key("C", key_size)
         else:
-            IV_in = self._compute_key("B", block_size)
-            key_in = self._compute_key(
-                "D", self._cipher_info[self.remote_cipher]["key-size"]
-            )
-        engine = self._get_cipher(
-            self.remote_cipher, key_in, IV_in, self._DECRYPT
+            iv_in = self._compute_key("B", iv_size)
+            key_in = self._compute_key("D", key_size)
+
+        engine = self._get_engine(
+            name=self.remote_cipher,
+            key=key_in,
+            iv=iv_in,
+            operation=self._DECRYPT,
+            aead=aead,
         )
-        etm = "etm@openssh.com" in self.remote_mac
+        etm = (not aead) and "etm@openssh.com" in self.remote_mac
         mac_size = self._mac_info[self.remote_mac]["size"]
         mac_engine = self._mac_info[self.remote_mac]["class"]
         # initial mac keys are done in the hash's natural size (not the
@@ -2621,37 +2762,66 @@ class Transport(threading.Thread, ClosingContextManager):
             mac_key = self._compute_key("E", mac_engine().digest_size)
         else:
             mac_key = self._compute_key("F", mac_engine().digest_size)
+
         self.packetizer.set_inbound_cipher(
-            engine, block_size, mac_engine, mac_size, mac_key, etm=etm
+            block_engine=engine,
+            block_size=block_size,
+            mac_engine=None if aead else mac_engine,
+            mac_size=16 if aead else mac_size,
+            mac_key=None if aead else mac_key,
+            etm=etm,
+            aead=aead,
+            iv_in=iv_in if aead else None,
         )
+
         compress_in = self._compression_info[self.remote_compression][1]
         if compress_in is not None and (
             self.remote_compression != "zlib@openssh.com" or self.authenticated
         ):
             self._log(DEBUG, "Switching on inbound compression ...")
             self.packetizer.set_inbound_compressor(compress_in())
+        # Reset inbound sequence number if strict mode.
+        if self.agreed_on_strict_kex:
+            self._log(
+                DEBUG,
+                "Resetting inbound seqno after NEWKEYS due to strict mode",
+            )
+            self.packetizer.reset_seqno_in()
 
     def _activate_outbound(self):
         """switch on newly negotiated encryption parameters for
-         outbound traffic"""
+        outbound traffic"""
         m = Message()
         m.add_byte(cMSG_NEWKEYS)
         self._send_message(m)
-        block_size = self._cipher_info[self.local_cipher]["block-size"]
+        # Reset outbound sequence number if strict mode.
+        if self.agreed_on_strict_kex:
+            self._log(
+                DEBUG,
+                "Resetting outbound seqno after NEWKEYS due to strict mode",
+            )
+            self.packetizer.reset_seqno_out()
+        info = self._cipher_info[self.local_cipher]
+        aead = info.get("is_aead", False)
+        block_size = info["block-size"]
+        key_size = info["key-size"]
+        # Non-AEAD/GCM type ciphers' IV size is their block size.
+        iv_size = info.get("iv-size", block_size)
         if self.server_mode:
-            IV_out = self._compute_key("B", block_size)
-            key_out = self._compute_key(
-                "D", self._cipher_info[self.local_cipher]["key-size"]
-            )
+            iv_out = self._compute_key("B", iv_size)
+            key_out = self._compute_key("D", key_size)
         else:
-            IV_out = self._compute_key("A", block_size)
-            key_out = self._compute_key(
-                "C", self._cipher_info[self.local_cipher]["key-size"]
-            )
-        engine = self._get_cipher(
-            self.local_cipher, key_out, IV_out, self._ENCRYPT
+            iv_out = self._compute_key("A", iv_size)
+            key_out = self._compute_key("C", key_size)
+
+        engine = self._get_engine(
+            name=self.local_cipher,
+            key=key_out,
+            iv=iv_out,
+            operation=self._ENCRYPT,
+            aead=aead,
         )
-        etm = "etm@openssh.com" in self.local_mac
+        etm = (not aead) and "etm@openssh.com" in self.local_mac
         mac_size = self._mac_info[self.local_mac]["size"]
         mac_engine = self._mac_info[self.local_mac]["class"]
         # initial mac keys are done in the hash's natural size (not the
@@ -2661,9 +2831,19 @@ class Transport(threading.Thread, ClosingContextManager):
         else:
             mac_key = self._compute_key("E", mac_engine().digest_size)
         sdctr = self.local_cipher.endswith("-ctr")
+
         self.packetizer.set_outbound_cipher(
-            engine, block_size, mac_engine, mac_size, mac_key, sdctr, etm=etm
+            block_engine=engine,
+            block_size=block_size,
+            mac_engine=None if aead else mac_engine,
+            mac_size=16 if aead else mac_size,
+            mac_key=None if aead else mac_key,
+            sdctr=sdctr,
+            etm=etm,
+            aead=aead,
+            iv_out=iv_out if aead else None,
         )
+
         compress_out = self._compression_info[self.local_compression][0]
         if compress_out is not None and (
             self.local_compression != "zlib@openssh.com" or self.authenticated
@@ -2727,7 +2907,9 @@ class Transport(threading.Thread, ClosingContextManager):
             self.auth_handler = AuthHandler(self)
         if not self.initial_kex_done:
             # this was the first key exchange
-            self.initial_kex_done = True
+            # (also signal to packetizer as it sometimes wants to know this
+            # status as well, eg when seqnos rollover)
+            self.initial_kex_done = self.packetizer._initial_kex_done = True
         # send an event?
         if self.completion_event is not None:
             self.completion_event.set()
@@ -2981,18 +3163,6 @@ class Transport(threading.Thread, ClosingContextManager):
         finally:
             self.lock.release()
 
-    _handler_table = {
-        MSG_EXT_INFO: _parse_ext_info,
-        MSG_NEWKEYS: _parse_newkeys,
-        MSG_GLOBAL_REQUEST: _parse_global_request,
-        MSG_REQUEST_SUCCESS: _parse_request_success,
-        MSG_REQUEST_FAILURE: _parse_request_failure,
-        MSG_CHANNEL_OPEN_SUCCESS: _parse_channel_open_success,
-        MSG_CHANNEL_OPEN_FAILURE: _parse_channel_open_failure,
-        MSG_CHANNEL_OPEN: _parse_channel_open,
-        MSG_KEXINIT: _negotiate_keys,
-    }
-
     _channel_handler_table = {
         MSG_CHANNEL_SUCCESS: Channel._request_success,
         MSG_CHANNEL_FAILURE: Channel._request_failed,
@@ -3005,10 +3175,10 @@ class Transport(threading.Thread, ClosingContextManager):
     }
 
 
-# TODO 3.0: drop this, we barely use it ourselves, it badly replicates the
+# TODO 4.0: drop this, we barely use it ourselves, it badly replicates the
 # Transport-internal algorithm management, AND does so in a way which doesn't
 # honor newer things like disabled_algorithms!
-class SecurityOptions(object):
+class SecurityOptions:
     """
     Simple object containing the security preferences of an ssh transport.
     These are tuples of acceptable ciphers, digests, key types, and key
@@ -3089,7 +3259,7 @@ class SecurityOptions(object):
         self._set("_preferred_compression", "_compression_info", x)
 
 
-class ChannelMap(object):
+class ChannelMap:
     def __init__(self):
         # (id -> Channel)
         self._map = weakref.WeakValueDictionary()
@@ -3132,3 +3302,161 @@ class ChannelMap(object):
             return len(self._map)
         finally:
             self._lock.release()
+
+
+class ServiceRequestingTransport(Transport):
+    """
+    Transport, but also handling service requests, like it oughtta!
+
+    .. versionadded:: 3.2
+    """
+
+    # NOTE: this purposefully duplicates some of the parent class in order to
+    # modernize, refactor, etc. The intent is that eventually we will collapse
+    # this one onto the parent in a backwards incompatible release.
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._service_userauth_accepted = False
+        self._handler_table[MSG_SERVICE_ACCEPT] = self._parse_service_accept
+
+    def _parse_service_accept(self, m):
+        service = m.get_text()
+        # Short-circuit for any service name not ssh-userauth.
+        # NOTE: it's technically possible for 'service name' in
+        # SERVICE_REQUEST/ACCEPT messages to be "ssh-connection" --
+        # but I don't see evidence of Paramiko ever initiating or expecting to
+        # receive one of these. We /do/ see the 'service name' field in
+        # MSG_USERAUTH_REQUEST/ACCEPT/FAILURE set to this string, but that is a
+        # different set of handlers, so...!
+        if service != "ssh-userauth":
+            # TODO 4.0: consider erroring here (with an ability to opt out?)
+            # instead as it probably means something went Very Wrong.
+            self._log(
+                DEBUG, 'Service request "{}" accepted (?)'.format(service)
+            )
+            return
+        # Record that we saw a service-userauth acceptance, meaning we are free
+        # to submit auth requests.
+        self._service_userauth_accepted = True
+        self._log(DEBUG, "MSG_SERVICE_ACCEPT received; auth may begin")
+
+    def ensure_session(self):
+        # Make sure we're not trying to auth on a not-yet-open or
+        # already-closed transport session; that's our responsibility, not that
+        # of AuthHandler.
+        if (not self.active) or (not self.initial_kex_done):
+            # TODO: better error message? this can happen in many places, eg
+            # user error (authing before connecting) or developer error (some
+            # improperly handled pre/mid auth shutdown didn't become fatal
+            # enough). The latter is much more common & should ideally be fixed
+            # by terminating things harder?
+            raise SSHException("No existing session")
+        # Also make sure we've actually been told we are allowed to auth.
+        if self._service_userauth_accepted:
+            return
+        # Or request to do so, otherwise.
+        m = Message()
+        m.add_byte(cMSG_SERVICE_REQUEST)
+        m.add_string("ssh-userauth")
+        self._log(DEBUG, "Sending MSG_SERVICE_REQUEST: ssh-userauth")
+        self._send_message(m)
+        # Now we wait to hear back; the user is expecting a blocking-style auth
+        # request so there's no point giving control back anywhere.
+        while not self._service_userauth_accepted:
+            # TODO: feels like we're missing an AuthHandler Event like
+            # 'self.auth_event' which is set when AuthHandler shuts down in
+            # ways good AND bad. Transport only seems to have completion_event
+            # which is unclear re: intent, eg it's set by newkeys which always
+            # happens on connection, so it'll always be set by the time we get
+            # here.
+            # NOTE: this copies the timing of event.wait() in
+            # AuthHandler.wait_for_response, re: 1/10 of a second. Could
+            # presumably be smaller, but seems unlikely this period is going to
+            # be "too long" for any code doing ssh networking...
+            time.sleep(0.1)
+        self.auth_handler = self.get_auth_handler()
+
+    def get_auth_handler(self):
+        # NOTE: using new sibling subclass instead of classic AuthHandler
+        return AuthOnlyHandler(self)
+
+    def auth_none(self, username):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        self.ensure_session()
+        return self.auth_handler.auth_none(username)
+
+    def auth_password(self, username, password, fallback=True):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        self.ensure_session()
+        try:
+            return self.auth_handler.auth_password(username, password)
+        except BadAuthenticationType as e:
+            # if password auth isn't allowed, but keyboard-interactive *is*,
+            # try to fudge it
+            if not fallback or ("keyboard-interactive" not in e.allowed_types):
+                raise
+            try:
+
+                def handler(title, instructions, fields):
+                    if len(fields) > 1:
+                        raise SSHException("Fallback authentication failed.")
+                    if len(fields) == 0:
+                        # for some reason, at least on os x, a 2nd request will
+                        # be made with zero fields requested.  maybe it's just
+                        # to try to fake out automated scripting of the exact
+                        # type we're doing here.  *shrug* :)
+                        return []
+                    return [password]
+
+                return self.auth_interactive(username, handler)
+            except SSHException:
+                # attempt to fudge failed; just raise the original exception
+                raise e
+
+    def auth_publickey(self, username, key):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        self.ensure_session()
+        return self.auth_handler.auth_publickey(username, key)
+
+    def auth_interactive(self, username, handler, submethods=""):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        self.ensure_session()
+        return self.auth_handler.auth_interactive(
+            username, handler, submethods
+        )
+
+    def auth_interactive_dumb(self, username, handler=None, submethods=""):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        # NOTE: legacy impl omitted equiv of ensure_session since it just wraps
+        # another call to an auth method. however we reinstate it for
+        # consistency reasons.
+        self.ensure_session()
+        if not handler:
+
+            def handler(title, instructions, prompt_list):
+                answers = []
+                if title:
+                    print(title.strip())
+                if instructions:
+                    print(instructions.strip())
+                for prompt, show_input in prompt_list:
+                    print(prompt.strip(), end=" ")
+                    answers.append(input())
+                return answers
+
+        return self.auth_interactive(username, handler, submethods)
+
+    def auth_gssapi_with_mic(self, username, gss_host, gss_deleg_creds):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        self.ensure_session()
+        self.auth_handler = self.get_auth_handler()
+        return self.auth_handler.auth_gssapi_with_mic(
+            username, gss_host, gss_deleg_creds
+        )
+
+    def auth_gssapi_keyex(self, username):
+        # TODO 4.0: merge to parent, preserving (most of) docstring
+        self.ensure_session()
+        self.auth_handler = self.get_auth_handler()
+        return self.auth_handler.auth_gssapi_keyex(username)

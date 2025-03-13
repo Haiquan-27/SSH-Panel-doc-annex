@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with Paramiko; if not, write to the Free Software Foundation, Inc.,
-# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
+# 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA.
 
 import socket
 
@@ -58,9 +58,9 @@ class BadAuthenticationType(AuthenticationException):
 
     allowed_types = []
 
-    # TODO 3.0: remove explanation kwarg
+    # TODO 4.0: remove explanation kwarg
     def __init__(self, explanation, types):
-        # TODO 3.0: remove this supercall unless it's actually required for
+        # TODO 4.0: remove this supercall unless it's actually required for
         # pickling (after fixing pickling)
         AuthenticationException.__init__(self, explanation, types)
         self.explanation = explanation
@@ -87,6 +87,11 @@ class PartialAuthentication(AuthenticationException):
         return "Partial authentication; allowed types: {!r}".format(
             self.allowed_types
         )
+
+
+# TODO 4.0: stop inheriting from SSHException, move to auth.py
+class UnableToAuthenticate(AuthenticationException):
+    pass
 
 
 class ChannelException(SSHException):
@@ -125,9 +130,7 @@ class BadHostKeyException(SSHException):
         self.expected_key = expected_key
 
     def __str__(self):
-        msg = (
-            "Host key for server '{}' does not match: got '{}', expected '{}'"
-        )  # noqa
+        msg = "Host key for server '{}' does not match: got '{}', expected '{}'"  # noqa
         return msg.format(
             self.hostname,
             self.key.get_base64(),
@@ -142,7 +145,7 @@ class IncompatiblePeer(SSHException):
     .. versionadded:: 2.9
     """
 
-    # TODO 3.0: consider making this annotate w/ 1..N 'missing' algorithms,
+    # TODO 4.0: consider making this annotate w/ 1..N 'missing' algorithms,
     # either just the first one that would halt kex, or even updating the
     # Transport logic so we record /all/ that /could/ halt kex.
     # TODO: update docstrings where this may end up raised so they are more
@@ -204,7 +207,7 @@ class NoValidConnectionsError(socket.error):
             msg = "Unable to connect to port {0} on {1} or {2}"
         else:
             msg = "Unable to connect to port {0} on {2}"
-        super(NoValidConnectionsError, self).__init__(
+        super().__init__(
             None, msg.format(addrs[0][1], body, tail)  # stand-in for errno
         )
         self.errors = errors
@@ -232,6 +235,16 @@ class ConfigParseError(SSHException):
     matching ``key = value`` syntax or misusing certain ``Match`` keywords.
 
     .. versionadded:: 2.7
+    """
+
+    pass
+
+
+class MessageOrderError(SSHException):
+    """
+    Out-of-order protocol messages were received, violating "strict kex" mode.
+
+    .. versionadded:: 3.4
     """
 
     pass
