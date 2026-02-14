@@ -75,7 +75,43 @@ sudo pacman -S libffi
 # if Opensuse `untest`
 sudo zypper install libffi-devel
 ```
+## if MAC/Apple Silicon,need **libffi**
+```bash
+# you can install from Homebrew
+brew install libffi
+# Since brew does not add a default search path for downloaded files, a link is required
+# link libffi.dylib to /usr/local/lib/
+sudo ln -s $(brew --prefix libffi)/lib/libffi.dylib /usr/local/lib/libffi.dylib
+# or link to ~/lib
+# mkdir -p ~/lib
+# ln -s $(brew --prefix libffi)/lib/libffi.dylib ~/lib/libffi.dylib
+```
+> Due to the influence of the `MacOS SIP` mechanism, it may not be possible to create a link in paths such as `/usr/lib`. In order to enable libffi.dylib to be loaded correctly by Sublime Text, you can also use `install_name_tool` to replace `@rapth`, if the above methods fail to work ,please try the following method:
+```bash
+# step 1
+# install libffi from Homebrew
+brew install libffi
+ls -al $(brew --prefix libffi)/lib/libffi.8.dylib # check install
+# install Xcode Command Line Tools
+xcode-select --install
+xcode-select -p # check install
+install_name_tool -help
 
+# step 2
+# running ssh_panel_install_dependencies command in sublime_text console
+
+# step 3
+# Locate the directory where _cffi_backend.cpython-38-darwin.so is located and enter it
+cd "~/Library/Application Support/Sublime Text"
+cd $(dirname $(find . -name "_cffi_backend.cpython-38-darwin.so" | head -1))
+
+# step 4
+cp $(brew --prefix libffi)/lib/libffi.8.dylib .
+install_name_tool -change @rpath/libffi.8.dylib @loader_path/libffi.8.dylib ./_cffi_backend.cpython-38-darwin.so
+
+# step 5
+# restart sublime text
+```
 ## place python dependency library
 
 ### (recommend) using auto install command with `ssh_panel_install_dependencies`
