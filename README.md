@@ -9,6 +9,42 @@ It can be used in `Windows x86` `Windows amd64` `Linux amd64` `MacOS amd64` `Mac
 
 # Files(library)
 ```
+├── py314_linux_x64 (sublime text 4213+)
+│	 └── dist-packages
+│		├── bcrypt (5.0.0)
+│		├── cffi (2.1.1)
+│		├── cryptography (50.0.1)
+│		├── invoke (3.0.3)
+│		├──  paramiko (5.0.0)
+│		├──  pycparser (3.0)
+│		└── nacl (1.6.2)
+├── py314_osx_arm64 (sublime text 4213+)
+│	 └── dist-packages
+│		├── bcrypt (5.0.0)
+│		├── cffi (2.1.1)
+│		├── cryptography (50.0.1)
+│		├── invoke (3.0.3)
+│		├──  paramiko (5.0.0)
+│		├──  pycparser (3.0)
+│		└── nacl (1.6.2)
+├── py314_osx_x64 (sublime text 4213+)
+│	 └── dist-packages
+│		├── bcrypt (5.0.0)
+│		├── cffi (2.0.0)
+│		├── cryptography (48.0.1)
+│		├── invoke (3.0.3)
+│		├──  paramiko (5.0.0)
+│		├──  pycparser (3.0)
+│		└── nacl (1.6.2)
+├── py314_windows_x64 (sublime text 4213+)
+│	 └── dist-packages
+│		├── bcrypt (5.0.0)
+│		├── cffi (2.1.1)
+│		├── cryptography (50.0.1)
+│		├── invoke (3.0.3)
+│		├──  paramiko (5.0.0)
+│		├──  pycparser (3.0)
+│		└── nacl (1.6.2)
 ├── py38_linux_x64 (sublime text 4+)
 │	 └── dist-packages
 │		├── bcrypt (3.2.0)
